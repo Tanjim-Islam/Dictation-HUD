@@ -1,6 +1,6 @@
 [package]
 name = "dictation-hud"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cross-platform dictation HUD"
 authors = ["You"]
 edition = "2021"
