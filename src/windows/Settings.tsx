@@ -49,7 +49,26 @@ async function checkForUpdatesGlobal(): Promise<void> {
     log('🔄 Checking for updates...');
     console.log('🔄 Checking for updates from GitHub...');
     
-    const update = await check();
+    let update: Update | null = null;
+    try {
+      update = await check();
+    } catch (checkError) {
+      // Handle case where check() throws (e.g., network error, invalid JSON)
+      const msg = checkError instanceof Error ? checkError.message : String(checkError);
+      log('⚠️ Update check threw: ' + msg);
+      console.warn('⚠️ Update check threw:', msg);
+      // If it's a "no update" scenario disguised as error, treat as up-to-date
+      if (msg.includes('null') || msg.includes('available')) {
+        globalUpdateState.status = 'uptodate';
+        setTimeout(() => {
+          globalUpdateState.status = 'idle';
+          notifyUpdateListeners();
+        }, 3000);
+        notifyUpdateListeners();
+        return;
+      }
+      throw checkError;
+    }
     
     if (update) {
       log(`✅ Update available: ${update.version}`);
