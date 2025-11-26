@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -15,78 +15,147 @@ import { KeyRecorder } from '../components/KeyRecorder';
 
 type KeysPresent = { openrouter: boolean; deepgram: boolean; megallm: boolean; elevenlabs: boolean };
 
-type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error';
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'uptodate';
+
+// Update state shared between TitleBar and Settings
+type UpdateState = {
+  status: UpdateStatus;
+  progress: number;
+  pendingUpdate: Update | null;
+  error: string | null;
+  newVersion: string | null;
+};
+
+// Global update state and callbacks
+let globalUpdateState: UpdateState = {
+  status: 'idle',
+  progress: 0,
+  pendingUpdate: null,
+  error: null,
+  newVersion: null,
+};
+let updateListeners: Set<(state: UpdateState) => void> = new Set();
+
+function notifyUpdateListeners() {
+  updateListeners.forEach(listener => listener({ ...globalUpdateState }));
+}
+
+async function checkForUpdatesGlobal(): Promise<void> {
+  try {
+    globalUpdateState.status = 'checking';
+    globalUpdateState.error = null;
+    notifyUpdateListeners();
+    
+    log('🔄 Checking for updates...');
+    console.log('🔄 Checking for updates from GitHub...');
+    
+    const update = await check();
+    
+    if (update) {
+      log(`✅ Update available: ${update.version}`);
+      console.log('✅ Update available:', update.version);
+      globalUpdateState.pendingUpdate = update;
+      globalUpdateState.newVersion = update.version;
+      globalUpdateState.status = 'available';
+    } else {
+      log('✅ App is up to date');
+      console.log('✅ App is up to date');
+      globalUpdateState.status = 'uptodate';
+      // Show "up to date" for 3 seconds then hide
+      setTimeout(() => {
+        globalUpdateState.status = 'idle';
+        notifyUpdateListeners();
+      }, 3000);
+    }
+    notifyUpdateListeners();
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    logError('❌ Update check failed: ' + errorMsg);
+    console.error('❌ Update check failed:', errorMsg);
+    globalUpdateState.error = errorMsg;
+    globalUpdateState.status = 'error';
+    notifyUpdateListeners();
+  }
+}
+
+async function downloadAndInstallGlobal(): Promise<void> {
+  if (!globalUpdateState.pendingUpdate) return;
+  
+  try {
+    globalUpdateState.status = 'downloading';
+    globalUpdateState.progress = 0;
+    notifyUpdateListeners();
+    
+    log('📥 Downloading update...');
+    console.log('📥 Downloading update...');
+    
+    let downloaded = 0;
+    let contentLength = 0;
+    
+    await globalUpdateState.pendingUpdate.downloadAndInstall((event: DownloadEvent) => {
+      switch (event.event) {
+        case 'Started':
+          contentLength = event.data.contentLength || 0;
+          log(`Download started, size: ${contentLength}`);
+          console.log(`Download started, size: ${contentLength} bytes`);
+          break;
+        case 'Progress':
+          downloaded += event.data.chunkLength;
+          const progress = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
+          globalUpdateState.progress = progress;
+          notifyUpdateListeners();
+          break;
+        case 'Finished':
+          log('✅ Download finished');
+          console.log('✅ Download finished');
+          break;
+      }
+    });
+    
+    globalUpdateState.status = 'ready';
+    notifyUpdateListeners();
+    
+    log('✅ Update ready, restarting...');
+    console.log('✅ Update ready, restarting app...');
+    
+    // Small delay to show the "ready" state
+    setTimeout(async () => {
+      await relaunch();
+    }, 1000);
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    logError('❌ Update download failed: ' + errorMsg);
+    console.error('❌ Update download failed:', errorMsg);
+    globalUpdateState.error = errorMsg;
+    globalUpdateState.status = 'error';
+    notifyUpdateListeners();
+  }
+}
+
+function useUpdateState() {
+  const [state, setState] = useState<UpdateState>({ ...globalUpdateState });
+  
+  useEffect(() => {
+    const listener = (newState: UpdateState) => setState(newState);
+    updateListeners.add(listener);
+    return () => { updateListeners.delete(listener); };
+  }, []);
+  
+  return state;
+}
 
 function TitleBar({ version }: { version: string }) {
   const win = getCurrentWebviewWindow();
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
-  const [updateProgress, setUpdateProgress] = useState(0);
-  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const updateState = useUpdateState();
 
   // Check for updates on mount
   useEffect(() => {
-    checkForUpdates();
+    // Small delay to let the window fully initialize
+    const timer = setTimeout(() => {
+      checkForUpdatesGlobal();
+    }, 500);
+    return () => clearTimeout(timer);
   }, []);
-
-  const checkForUpdates = async () => {
-    try {
-      setUpdateStatus('checking');
-      log('🔄 Checking for updates...');
-      const update = await check();
-      if (update) {
-        log(`✅ Update available: ${update.version}`);
-        setPendingUpdate(update);
-        setUpdateStatus('available');
-      } else {
-        log('✅ App is up to date');
-        setUpdateStatus('idle');
-      }
-    } catch (e) {
-      logError('❌ Update check failed: ' + String(e));
-      setUpdateStatus('error');
-      // Reset to idle after 3 seconds
-      setTimeout(() => setUpdateStatus('idle'), 3000);
-    }
-  };
-
-  const downloadAndInstall = async () => {
-    if (!pendingUpdate) return;
-    try {
-      setUpdateStatus('downloading');
-      log('📥 Downloading update...');
-      
-      let downloaded = 0;
-      let contentLength = 0;
-      
-      await pendingUpdate.downloadAndInstall((event: DownloadEvent) => {
-        switch (event.event) {
-          case 'Started':
-            contentLength = event.data.contentLength || 0;
-            log(`Download started, size: ${contentLength}`);
-            break;
-          case 'Progress':
-            downloaded += event.data.chunkLength;
-            const progress = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
-            setUpdateProgress(progress);
-            break;
-          case 'Finished':
-            log('✅ Download finished');
-            break;
-        }
-      });
-      
-      setUpdateStatus('ready');
-      log('✅ Update ready, restarting...');
-      // Small delay to show the "ready" state
-      setTimeout(async () => {
-        await relaunch();
-      }, 500);
-    } catch (e) {
-      logError('❌ Update download failed: ' + String(e));
-      setUpdateStatus('error');
-      setTimeout(() => setUpdateStatus('idle'), 3000);
-    }
-  };
 
   const handleMinimize = async () => {
     log('🔽🔽🔽 Minimize button clicked 🔽🔽🔽');
@@ -109,48 +178,69 @@ function TitleBar({ version }: { version: string }) {
   };
 
   const renderUpdateButton = () => {
-    switch (updateStatus) {
+    switch (updateState.status) {
       case 'checking':
         return (
           <motion.button
+            key="checking"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-800 border border-neutral-700 text-xs text-muted cursor-default"
           >
             <RefreshCw size={12} className="animate-spin" />
             <span>Checking...</span>
           </motion.button>
         );
+      case 'uptodate':
+        return (
+          <motion.button
+            key="uptodate"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-xs text-green-400 cursor-default"
+          >
+            <Check size={12} />
+            <span>Up to date</span>
+          </motion.button>
+        );
       case 'available':
         return (
           <motion.button
+            key="available"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             whileHover={{ scale: 1.05, backgroundColor: 'rgba(34, 197, 94, 0.2)' }}
             whileTap={{ scale: 0.95 }}
-            onClick={downloadAndInstall}
+            onClick={downloadAndInstallGlobal}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-xs text-green-400 hover:border-green-500/50 transition-colors cursor-pointer"
           >
             <Download size={12} />
-            <span>Update Available</span>
+            <span>Update to v{updateState.newVersion}</span>
           </motion.button>
         );
       case 'downloading':
         return (
           <motion.button
+            key="downloading"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-xs text-blue-400 cursor-default"
           >
             <Loader2 size={12} className="animate-spin" />
-            <span>Updating {updateProgress}%</span>
+            <span>Updating {updateState.progress}%</span>
           </motion.button>
         );
       case 'ready':
         return (
           <motion.button
+            key="ready"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-500/40 text-xs text-green-400 cursor-default"
           >
             <Check size={12} />
@@ -160,12 +250,15 @@ function TitleBar({ version }: { version: string }) {
       case 'error':
         return (
           <motion.button
+            key="error"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={checkForUpdates}
+            onClick={checkForUpdatesGlobal}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-xs text-red-400 hover:border-red-500/50 transition-colors cursor-pointer"
+            title={updateState.error || 'Update check failed'}
           >
             <X size={12} />
             <span>Retry</span>
@@ -212,6 +305,120 @@ function TitleBar({ version }: { version: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function UpdateSection({ onToast }: { onToast: (text: string, kind: 'ok' | 'err') => void }) {
+  const updateState = useUpdateState();
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    getVersion().then(setVersion);
+  }, []);
+
+  // Show toast notifications for update status changes
+  const lastToastRef = useRef<string>('');
+  
+  useEffect(() => {
+    let toastKey = '';
+    let toastText = '';
+    let toastKind: 'ok' | 'err' = 'ok';
+    
+    switch (updateState.status) {
+      case 'uptodate':
+        toastKey = 'uptodate';
+        toastText = 'App is up to date ✓';
+        break;
+      case 'available':
+        toastKey = 'available';
+        toastText = `Update v${updateState.newVersion} available!`;
+        break;
+      case 'ready':
+        toastKey = 'ready';
+        toastText = 'Update installed! Restarting...';
+        break;
+      case 'error':
+        toastKey = 'error';
+        toastText = `Update failed: ${updateState.error || 'Unknown error'}`;
+        toastKind = 'err';
+        break;
+    }
+    
+    // Only show toast if it's different from the last one
+    if (toastKey && toastKey !== lastToastRef.current) {
+      lastToastRef.current = toastKey;
+      onToast(toastText, toastKind);
+    }
+  }, [updateState.status, onToast]);
+
+  const getStatusText = () => {
+    switch (updateState.status) {
+      case 'checking': return 'Checking for updates...';
+      case 'uptodate': return 'You have the latest version';
+      case 'available': return `Version ${updateState.newVersion} is available`;
+      case 'downloading': return `Downloading... ${updateState.progress}%`;
+      case 'ready': return 'Restarting to apply update...';
+      case 'error': return updateState.error || 'Update check failed';
+      default: return 'Click to check for updates';
+    }
+  };
+
+  const isLoading = updateState.status === 'checking' || updateState.status === 'downloading';
+
+  return (
+    <section className="bg-card rounded-xl p-5 border border-neutral-800 h-fit mt-4">
+      <h2 className="text-sm uppercase tracking-wider text-muted mb-3">About</h2>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium">Dictation HUD</div>
+            <div className="text-xs text-muted">Version {version}</div>
+          </div>
+        </div>
+        
+        <div className="text-xs text-muted">{getStatusText()}</div>
+        
+        {updateState.status === 'downloading' && (
+          <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+            <motion.div 
+              className="h-full bg-blue-500"
+              initial={{ width: 0 }}
+              animate={{ width: `${updateState.progress}%` }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
+        )}
+        
+        <div className="flex gap-2">
+          {updateState.status === 'available' ? (
+            <motion.button
+              onClick={downloadAndInstallGlobal}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="flex-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-500 transition flex items-center justify-center gap-2"
+            >
+              <Download size={14} />
+              Download & Install
+            </motion.button>
+          ) : (
+            <motion.button
+              onClick={checkForUpdatesGlobal}
+              disabled={isLoading}
+              whileHover={{ scale: isLoading ? 1 : 1.02 }}
+              whileTap={{ scale: isLoading ? 1 : 0.98 }}
+              className="flex-1 px-3 py-2 bg-neutral-800 rounded border border-neutral-700 hover:bg-neutral-700 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              {isLoading ? 'Checking...' : 'Check for Updates'}
+            </motion.button>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -690,17 +897,19 @@ async function persistBehavior() {
                 <div className="text-sm">Echo cancellation</div>
                 <div className="text-xs text-muted">Enable echo control when available</div>
               </div>
-              <Switch checked={echoCancellation} onCheckedChange={(v)=>{ log('?? Toggle echoCancellation ->', v); setEchoCancellation(v); }} />
+              <Switch checked={echoCancellation} onCheckedChange={(v)=>{ log('🔊 Toggle echoCancellation ->', v); setEchoCancellation(v); }} />
             </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm">Noise suppression</div>
                 <div className="text-xs text-muted">Enable noise filtering when available</div>
               </div>
-              <Switch checked={noiseSuppression} onCheckedChange={(v)=>{ log('?? Toggle noiseSuppression ->', v); setNoiseSuppression(v); }} />
+              <Switch checked={noiseSuppression} onCheckedChange={(v)=>{ log('🔊 Toggle noiseSuppression ->', v); setNoiseSuppression(v); }} />
             </div>
           </div>
               </section>
+
+              <UpdateSection onToast={(text: string, kind: 'ok' | 'err') => { setToast({ text, kind }); setTimeout(() => setToast(null), 3000); }} />
               </div>
 
               <div className="flex-1 min-w-0">
