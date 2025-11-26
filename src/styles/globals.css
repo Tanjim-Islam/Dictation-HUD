@@ -1,0 +1,29 @@
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/600.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #171717;
+  --fg: #f2f1ea;
+  --muted: #c9c7bf;
+  --card: #1f1f1f;
+  --accent: #e5e2d6;
+}
+
+html, body, #root { height: 100%; }
+body { background: transparent; color: var(--fg); }
+body[data-window="settings"] { background: var(--bg); }
+
+/* Minimal scrollbar tweak */
+* { scrollbar-width: thin; scrollbar-color: #333 #171717; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+
+html { background: transparent; }
+
+#root { background: transparent; }
+

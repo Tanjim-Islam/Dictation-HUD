@@ -1,0 +1,37 @@
+[package]
+name = "dictation-hud"
+version = "0.1.0"
+description = "Cross-platform dictation HUD"
+authors = ["You"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0-rc.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0-rc.3", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+dotenvy = "0.15"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"], optional = true }
+
+tauri-plugin-global-shortcut = { version = "2.0.0-rc.3" }
+tauri-plugin-autostart = { version = "2.0.0-rc.3" }
+tauri-plugin-clipboard-manager = { version = "2.0.0-rc.3" }
+tauri-plugin-single-instance = { version = "2.0.0-rc.3" }
+tauri-plugin-store = { version = "2.0.0-rc.3" }
+tauri-plugin-stronghold = { version = "2.0.0-rc.3" }
+tauri-plugin-updater = { version = "2.0.0-rc.1" }
+tauri-plugin-process = { version = "2.0.0-rc.1" }
+
+# Optional native input helpers; disabled by default
+rdev = { version = "0.5.3", optional = true }
+enigo = { version = "0.2.1", optional = true }
+
+[features]
+default = ["native-input", "windows-monitor"]
+native-input = ["rdev", "enigo"]
+windows-monitor = ["windows"]

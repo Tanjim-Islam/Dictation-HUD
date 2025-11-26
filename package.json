@@ -1,0 +1,47 @@
+{
+  "name": "dictation-hud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:frontend": "vite",
+    "build": "tauri build",
+    "build:frontend": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings=0",
+    "format": "prettier --write .",
+    "test:providers": "node scripts/test-providers.mjs"
+  },
+  "dependencies": {
+    "@fontsource/geist-mono": "^5.1.0",
+    "@tauri-apps/api": "2.0.0-rc.3",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.0.1",
+    "@tauri-apps/plugin-updater": "2.0.0-rc.1",
+    "@tauri-apps/plugin-process": "2.0.0-rc.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.0.0-rc.3",
+    "@types/node": "^22.7.5",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react-swc": "^3.7.0",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^16.4.5",
+    "eslint": "^9.12.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^5.1.0-rc.0",
+    "@typescript-eslint/parser": "^8.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.10.0",
+    "postcss": "^8.4.47",
+    "prettier": "^3.3.3",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "ws": "^8.18.0"
+  }
+}

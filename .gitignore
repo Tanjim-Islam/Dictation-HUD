@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.turbo/
+.vite/
+*.log
+.DS_Store
+src-tauri/target/
+src-tauri/secrets.bin
+src-tauri/*.pdb
+src-tauri/*.dSYM
+.env
+scripts/test-elevenlabs-realtime.mjs
+~
