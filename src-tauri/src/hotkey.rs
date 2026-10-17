@@ -1,48 +1,111 @@
-use tauri::AppHandle;
-use tauri_plugin_store::StoreExt;
-// shortcut registration is handled on the frontend via the JS plugin
+//! Global dictation shortcut, registered and handled in Rust.
 
-pub fn ensure_default_hotkey(app: tauri::AppHandle) -> Result<(), String> {
-  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
-  let default = if cfg!(target_os = "macos") {
-    "Control+Shift+Alt+H"
-  } else {
-    "Ctrl+Shift+Alt+H"
-  };
-  let combo = store
-    .get("hotkey")
-    .and_then(|v| v.as_str().map(|s| s.to_string()))
-    .unwrap_or(default.into());
-  set_hotkey(&app, &combo)?;
-  Ok(())
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use tauri::{AppHandle, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_store::StoreExt;
+
+use crate::session::{Input, SessionHandle, Trigger};
+
+pub const DEFAULT_HOTKEY: &str = "Ctrl+Shift+Alt+H";
+
+/// A press counts only after this much quiet since the previous press (accepted or not), so
+/// a burst of presses acts once.
+const PRESS_GUARD: Duration = Duration::from_millis(400);
+static LAST_PRESS: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn accept_press(now: Instant) -> bool {
+  let mut last = LAST_PRESS.lock().unwrap();
+  let accept = last.is_none_or(|prev| now.saturating_duration_since(prev) >= PRESS_GUARD);
+  *last = Some(now);
+  accept
 }
 
-pub fn set_hotkey(app: &AppHandle, combo: &str) -> Result<(), String> {
-  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
-  store.set("hotkey", combo);
-  store.save().map_err(|e| e.to_string())?;
-  Ok(())
+pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+  tauri_plugin_global_shortcut::Builder::new()
+    .with_handler(|app, _shortcut, event| {
+      // The OS reports both press and release; only a press is an intent.
+      if event.state() == ShortcutState::Pressed && accept_press(Instant::now()) {
+        if let Some(session) = app.try_state::<SessionHandle>() {
+          session.try_send(Input::Toggle(Trigger::Hotkey));
+        }
+      }
+    })
+    .build()
 }
 
 pub fn get_hotkey(app: &AppHandle) -> String {
-  let store = match app.store("prefs.json") {
-    Ok(s) => s,
-    Err(_) => {
-      return if cfg!(target_os = "macos") {
-        "Control+Shift+Alt+H".into()
-      } else {
-        "Ctrl+Shift+Alt+H".into()
-      }
+  app
+    .store("prefs.json")
+    .ok()
+    .and_then(|s| s.get("hotkey"))
+    .and_then(|v| v.as_str().map(str::to_string))
+    .filter(|s| !s.is_empty())
+    .unwrap_or_else(|| DEFAULT_HOTKEY.into())
+}
+
+fn parse(combo: &str) -> Result<Shortcut, String> {
+  combo.parse::<Shortcut>().map_err(|e| format!("Invalid shortcut: {e}"))
+}
+
+fn register_only(app: &AppHandle, combo: &str) -> Result<(), String> {
+  let shortcut = parse(combo)?;
+  let gs = app.global_shortcut();
+  gs.unregister_all().map_err(|e| e.to_string())?;
+  gs.register(shortcut)
+    .map_err(|e| format!("Could not register shortcut: {e}"))
+}
+
+/// Registers the stored shortcut at startup, falling back to the default.
+pub fn register_stored(app: &AppHandle) {
+  let combo = get_hotkey(app);
+  if let Err(e) = register_only(app, &combo) {
+    tracing::warn!(error = %e, "stored shortcut failed; trying default");
+    if let Err(e) = register_only(app, DEFAULT_HOTKEY) {
+      tracing::error!(error = %e, "default shortcut failed");
     }
-  };
-  store
-    .get("hotkey")
-    .and_then(|v| v.as_str().map(|s| s.to_string()))
-    .unwrap_or_else(|| {
-      if cfg!(target_os = "macos") {
-        "Control+Shift+Alt+H".into()
-      } else {
-        "Ctrl+Shift+Alt+H".into()
-      }
-    })
+  }
+}
+
+/// Registers a new shortcut and persists it only if registration succeeded. On failure the
+/// previous shortcut is restored.
+pub fn set_hotkey(app: &AppHandle, combo: &str) -> Result<(), String> {
+  let previous = get_hotkey(app);
+  parse(combo)?;
+  if let Err(e) = register_only(app, combo) {
+    let _ = register_only(app, &previous);
+    return Err(e);
+  }
+  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+  store.set("hotkey", combo);
+  store.save().map_err(|e| e.to_string())?;
+  tracing::info!(combo, "shortcut registered");
+  Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn default_and_recorder_formats_parse() {
+    for combo in [DEFAULT_HOTKEY, "Ctrl+Space", "Alt+F9", "Ctrl+Shift+D"] {
+      assert!(parse(combo).is_ok(), "{combo}");
+    }
+    assert!(parse("NotAKey+++").is_err());
+  }
+
+  #[test]
+  fn press_guard_drops_chatter() {
+    let t0 = Instant::now() + Duration::from_secs(3600);
+    assert!(accept_press(t0));
+    assert!(!accept_press(t0 + Duration::from_millis(250)));
+    assert!(
+      !accept_press(t0 + Duration::from_millis(500)),
+      "burst keeps resetting the guard"
+    );
+    assert!(accept_press(t0 + Duration::from_millis(950)));
+  }
 }

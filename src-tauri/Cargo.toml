@@ -13,7 +13,7 @@ tauri = { version = "2.9", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 dotenvy = "0.15"
 tracing = "0.1"
@@ -31,6 +31,7 @@ tauri-plugin-process = "2"
 
 # Native input helper for the paste keystroke
 enigo = { version = "0.2.1", optional = true }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [features]
 default = ["native-input", "windows-monitor"]

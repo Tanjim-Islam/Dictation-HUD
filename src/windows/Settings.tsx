@@ -4,7 +4,6 @@ import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { check, Update, type DownloadEvent } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { initGlobalHotkey } from '../lib/hotkey';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, Loader2, Minus, X as XIcon, Download, RefreshCw } from 'lucide-react';
 // open external link using the browser; avoids requiring shell plugin here
@@ -490,27 +489,8 @@ export function Settings() {
       .catch((e) => console.error('Failed to get keys:', e));
 
     invoke<string>('get_hotkey')
-      .then((combo) => {
-        log('📌 Retrieved hotkey from backend:', combo);
-        console.log('📌 Retrieved hotkey from backend:', combo);
-        setHotkey(combo);
-        // Register the hotkey when Settings loads
-        if (combo) {
-          log('🎯 Registering hotkey on Settings mount:', combo);
-          console.log('🎯 Registering hotkey on Settings mount:', combo);
-          initGlobalHotkey(combo).then(success => {
-            log('Hotkey registration result:', success ? '✅ success' : '❌ failed');
-            console.log('Hotkey registration result:', success ? '✅ success' : '❌ failed');
-          });
-        } else {
-          log('⚠️ No hotkey combo retrieved, not registering');
-          console.warn('⚠️ No hotkey combo retrieved, not registering');
-        }
-      })
-      .catch((e) => {
-        logError('Failed to get hotkey:', e);
-        console.error('Failed to get hotkey:', e);
-      });
+      .then(setHotkey)
+      .catch(() => logError('Failed to get hotkey'));
 
     invoke<BehaviorPrefs>('get_behavior')
       .then((b) => {
@@ -676,13 +656,13 @@ async function persistBehavior() {
       setTimeout(() => setToast(null), 2000);
       return;
     }
-    await invoke('set_hotkey', { combo: hotkey });
-    const success = await initGlobalHotkey(hotkey);
-    if (success) {
-      console.log('Hotkey saved and registered:', hotkey);
+    try {
+      // Rust registers the shortcut and persists it only if registration succeeded.
+      await invoke('set_hotkey', { combo: hotkey });
       setToast({ text: 'Hotkey saved', kind: 'ok' });
-    } else {
-      setToast({ text: 'Hotkey registration failed', kind: 'err' });
+    } catch (e) {
+      setToast({ text: String(e), kind: 'err' });
+      invoke<string>('get_hotkey').then(setHotkey).catch(() => {});
     }
     setTimeout(() => setToast(null), 1500);
   }
