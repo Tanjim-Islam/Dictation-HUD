@@ -1,29 +1,22 @@
 import { invoke } from '@tauri-apps/api/core';
 
-// Send logs to both console and terminal
-export function log(...args: any[]) {
-  const message = args.map(arg =>
-    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-  ).join(' ');
+// Diagnostics only. Never pass transcripts, keys, context, or clipboard text here.
+function send(prefix: string, args: unknown[]) {
+  const message = prefix + args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+  invoke('log_to_terminal', { message }).catch(() => {});
+}
 
+export function log(...args: unknown[]) {
   console.log(...args);
-  invoke('log_to_terminal', { message }).catch(() => {});
+  send('', args);
 }
 
-export function error(...args: any[]) {
-  const message = '❌ ' + args.map(arg =>
-    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-  ).join(' ');
-
+export function error(...args: unknown[]) {
   console.error(...args);
-  invoke('log_to_terminal', { message }).catch(() => {});
+  send('error: ', args);
 }
 
-export function warn(...args: any[]) {
-  const message = '⚠️ ' + args.map(arg =>
-    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-  ).join(' ');
-
+export function warn(...args: unknown[]) {
   console.warn(...args);
-  invoke('log_to_terminal', { message }).catch(() => {});
+  send('warn: ', args);
 }

@@ -7,158 +7,74 @@ const K_MEGALLM: &str = "megallm_key";
 const K_ELEVENLABS: &str = "elevenlabs_key";
 const K_MEGALLM_MODEL: &str = "megallm_model";
 
+/// Development-only fallback to `.env`. Release builds never read it.
 fn env_default(key: &str) -> Option<String> {
-  // Load .env once
+  if !cfg!(debug_assertions) {
+    return None;
+  }
   let _ = dotenvy::dotenv();
   std::env::var(key).ok().filter(|s| !s.is_empty())
 }
 
+fn store_string(app: &AppHandle, key: &str) -> Option<String> {
+  let store = app.store("prefs.json").ok()?;
+  store
+    .get(key)
+    .and_then(|v| v.as_str().map(|s| s.to_string()))
+    .filter(|s| !s.is_empty())
+}
+
+fn set_store_string(app: &AppHandle, key: &str, value: &str) -> anyhow::Result<()> {
+  let store = app.store("prefs.json")?;
+  store.set(key, value);
+  store.save()?;
+  Ok(())
+}
+
+fn get_key(app: &AppHandle, store_key: &str, env_key: &str) -> Option<String> {
+  store_string(app, store_key).or_else(|| env_default(env_key))
+}
+
 pub async fn set_openrouter_key(app: &AppHandle, key: &str) -> anyhow::Result<()> {
-  let store = app.store("prefs.json")?;
-  store.set(K_OPENROUTER, key);
-  store.save()?;
-  Ok(())
+  set_store_string(app, K_OPENROUTER, key)
 }
-
 pub async fn get_openrouter_key(app: &AppHandle) -> Option<String> {
-  eprintln!("?? Getting OpenRouter key...");
-  let store = app.store("prefs.json").ok();
-  let stored = store.as_ref().and_then(|s| s.get(K_OPENROUTER).and_then(|v| v.as_str().map(|s| s.to_string())));
-
-  if let Some(ref key) = stored {
-    eprintln!("? OpenRouter key found in store: {}...", &key[..key.len().min(10)]);
-    Some(key.clone())
-  } else {
-    eprintln!("?? No OpenRouter key in store, checking environment...");
-    let env_key = env_default("OPENROUTER_API_KEY");
-    if let Some(ref key) = env_key {
-      eprintln!("? OpenRouter key found in environment: {}...", &key[..key.len().min(10)]);
-    } else {
-      eprintln!("? No OpenRouter key in environment either");
-    }
-    env_key
-  }
+  get_key(app, K_OPENROUTER, "OPENROUTER_API_KEY")
 }
-
 pub async fn set_megallm_key(app: &AppHandle, key: &str) -> anyhow::Result<()> {
-  eprintln!("?? Saving MegaLLM key to store...");
-  let store = app.store("prefs.json")?;
-  store.set(K_MEGALLM, key);
-  store.save()?;
-  eprintln!("? MegaLLM key saved");
-  Ok(())
+  set_store_string(app, K_MEGALLM, key)
 }
-
 pub async fn get_megallm_key(app: &AppHandle) -> Option<String> {
-  eprintln!("?? Getting MegaLLM key...");
-  let store = app.store("prefs.json").ok();
-  let stored = store.as_ref().and_then(|s| s.get(K_MEGALLM).and_then(|v| v.as_str().map(|s| s.to_string())));
-
-  if let Some(ref key) = stored {
-    eprintln!("? MegaLLM key found in store: {}...", &key[..key.len().min(10)]);
-    Some(key.clone())
-  } else {
-    eprintln!("?? No MegaLLM key in store, checking environment...");
-    let env_key = env_default("MEGALLM_API_KEY");
-    if let Some(ref key) = env_key {
-      eprintln!("? MegaLLM key found in environment: {}...", &key[..key.len().min(10)]);
-    } else {
-      eprintln!("? No MegaLLM key in environment either");
-    }
-    env_key
-  }
+  get_key(app, K_MEGALLM, "MEGALLM_API_KEY")
 }
-
 pub async fn set_deepgram_key(app: &AppHandle, key: &str) -> anyhow::Result<()> {
-  eprintln!("?? Saving Deepgram key to store...");
-  let store = app.store("prefs.json")?;
-  store.set(K_DEEPGRAM, key);
-  store.save()?;
-  eprintln!("? Deepgram key saved");
-  Ok(())
+  set_store_string(app, K_DEEPGRAM, key)
 }
-
 pub async fn get_deepgram_key(app: &AppHandle) -> Option<String> {
-  eprintln!("?? Getting Deepgram key...");
-  let store = app.store("prefs.json").ok();
-  let stored = store.as_ref().and_then(|s| s.get(K_DEEPGRAM).and_then(|v| v.as_str().map(|s| s.to_string())));
-
-  if let Some(ref key) = stored {
-    eprintln!("? Deepgram key found in store: {}...", &key[..key.len().min(10)]);
-    Some(key.clone())
-  } else {
-    eprintln!("?? No Deepgram key in store, checking environment...");
-    let env_key = env_default("DEEPGRAM_API_KEY");
-    if let Some(ref key) = env_key {
-      eprintln!("? Deepgram key found in environment: {}...", &key[..key.len().min(10)]);
-    } else {
-      eprintln!("? No Deepgram key in environment either");
-    }
-    env_key
-  }
+  get_key(app, K_DEEPGRAM, "DEEPGRAM_API_KEY")
 }
-
 pub async fn set_elevenlabs_key(app: &AppHandle, key: &str) -> anyhow::Result<()> {
-  eprintln!("?? Saving ElevenLabs key to store...");
-  let store = app.store("prefs.json")?;
-  store.set(K_ELEVENLABS, key);
-  store.save()?;
-  eprintln!("? ElevenLabs key saved");
-  Ok(())
+  set_store_string(app, K_ELEVENLABS, key)
 }
-
 pub async fn get_elevenlabs_key(app: &AppHandle) -> Option<String> {
-  eprintln!("?? Getting ElevenLabs key...");
-  let store = app.store("prefs.json").ok();
-  let stored = store.as_ref().and_then(|s| s.get(K_ELEVENLABS).and_then(|v| v.as_str().map(|s| s.to_string())));
-
-  if let Some(ref key) = stored {
-    eprintln!("? ElevenLabs key found in store: {}...", &key[..key.len().min(10)]);
-    Some(key.clone())
-  } else {
-    eprintln!("?? No ElevenLabs key in store, checking environment...");
-    let env_key = env_default("ELEVENLABS_API_KEY");
-    if let Some(ref key) = env_key {
-      eprintln!("? ElevenLabs key found in environment: {}...", &key[..key.len().min(10)]);
-    } else {
-      eprintln!("? No ElevenLabs key in environment either");
-    }
-    env_key
-  }
+  get_key(app, K_ELEVENLABS, "ELEVENLABS_API_KEY")
 }
 
 pub async fn set_model(app: &AppHandle, name: &str) -> anyhow::Result<()> {
-  let store = app.store("prefs.json")?;
-  store.set("model", name);
-  store.save()?;
-  Ok(())
+  set_store_string(app, "model", name)
 }
-
 pub async fn get_model(app: &AppHandle) -> Option<String> {
-  let store = app.store("prefs.json").ok()?;
-  store.get("model").and_then(|v| v.as_str().map(|s| s.to_string()))
+  store_string(app, "model")
 }
-
 pub async fn set_megallm_model(app: &AppHandle, name: &str) -> anyhow::Result<()> {
-  let store = app.store("prefs.json")?;
-  store.set(K_MEGALLM_MODEL, name);
-  store.save()?;
-  Ok(())
+  set_store_string(app, K_MEGALLM_MODEL, name)
 }
-
 pub async fn get_megallm_model(app: &AppHandle) -> Option<String> {
-  let store = app.store("prefs.json").ok()?;
-  store.get(K_MEGALLM_MODEL).and_then(|v| v.as_str().map(|s| s.to_string()))
+  store_string(app, K_MEGALLM_MODEL)
 }
-
 pub async fn set_language(app: &AppHandle, code: &str) -> anyhow::Result<()> {
-  let store = app.store("prefs.json")?;
-  store.set("language", code);
-  store.save()?;
-  Ok(())
+  set_store_string(app, "language", code)
 }
-
 pub async fn get_language(app: &AppHandle) -> Option<String> {
-  let store = app.store("prefs.json").ok()?;
-  store.get("language").and_then(|v| v.as_str().map(|s| s.to_string()))
+  store_string(app, "language")
 }

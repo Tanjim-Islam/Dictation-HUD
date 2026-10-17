@@ -1,37 +1,39 @@
-pub mod paste;
 pub mod config;
 pub mod hotkey;
+pub mod logging;
+pub mod paste;
 pub mod prompt;
+pub mod refine;
 pub mod symbols;
 
-use std::time::{Duration, Instant};
-use std::sync::Mutex;
-use tauri::{Manager, menu::{Menu, MenuItem}, tray::{TrayIconBuilder, TrayIconEvent}, AppHandle, Emitter};
-use tauri_plugin_store::StoreExt;
-use tauri_plugin_autostart::ManagerExt as _;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tauri::{
+  menu::{Menu, MenuItem},
+  tray::{TrayIconBuilder, TrayIconEvent},
+  AppHandle, Emitter, Manager,
+};
+use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_store::StoreExt;
+
+use logging::text_shape;
 
 // Helper for choosing which monitor the HUD should appear on.
-// On Windows, we try to use the monitor of the foreground window (focused app).
-// On other platforms, we fall back to Tauri's primary monitor.
 #[cfg(all(target_os = "windows", feature = "windows-monitor"))]
 mod focused_monitor {
   use windows::Win32::Foundation::{POINT, RECT};
-  use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITOR_DEFAULTTONEAREST, MONITORINFO};
+  use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
   use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-  /// Returns (left, top, width, height) of the work area of the monitor
-  /// containing the current mouse cursor, if available.
+  /// Returns (left, top, width, height) of the work area of the monitor under the cursor.
   pub fn work_area_for_foreground_monitor() -> Option<(i32, i32, u32, u32)> {
     unsafe {
-      // Use the current cursor position as a proxy for the "focused" monitor.
       let mut pt = POINT { x: 0, y: 0 };
       if GetCursorPos(&mut pt).is_err() {
         return None;
       }
-
       let hmon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-
       let mut info = MONITORINFO {
         cbSize: std::mem::size_of::<MONITORINFO>() as u32,
         ..Default::default()
@@ -39,11 +41,13 @@ mod focused_monitor {
       if !GetMonitorInfoW(hmon, &mut info).as_bool() {
         return None;
       }
-
-      let RECT { left, top, right, bottom } = info.rcWork;
-      let width = (right - left) as u32;
-      let height = (bottom - top) as u32;
-      Some((left, top, width, height))
+      let RECT {
+        left,
+        top,
+        right,
+        bottom,
+      } = info.rcWork;
+      Some((left, top, (right - left) as u32, (bottom - top) as u32))
     }
   }
 }
@@ -55,48 +59,76 @@ mod focused_monitor {
   }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BehaviorPrefs {
-  auto_paste: bool,
-  silence_secs: u32,
-  stream_insert: bool,
-  autostart: bool,
-  ai_refine: bool,
-  #[serde(default = "default_ai_provider")]
-  ai_provider: String, // "openrouter" | "megallm"
-  #[serde(default = "default_stt_provider")]
-  stt_provider: String, // "deepgram" | "elevenlabs"
-  echo_cancellation: bool,
-  noise_suppression: bool,
-}
+pub const BEHAVIOR_VERSION: u32 = 1;
 
-fn default_ai_provider() -> String { "openrouter".into() }
-fn default_stt_provider() -> String { "deepgram".into() }
+/// Behavior preferences. Every field has a default so an older or partial stored object
+/// keeps the fields it has instead of resetting everything.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BehaviorPrefs {
+  pub version: u32,
+  pub auto_paste: bool,
+  pub autostart: bool,
+  pub ai_refine: bool,
+  pub ai_provider: String,  // "openrouter" | "megallm"
+  pub stt_provider: String, // "deepgram" | "elevenlabs"
+  pub echo_cancellation: bool,
+  pub noise_suppression: bool,
+}
 
 impl Default for BehaviorPrefs {
   fn default() -> Self {
     Self {
+      version: BEHAVIOR_VERSION,
       auto_paste: true,
-      silence_secs: 2,
-      stream_insert: false,
       autostart: false,
       ai_refine: true,
-      ai_provider: default_ai_provider(),
-      stt_provider: default_stt_provider(),
+      ai_provider: "openrouter".into(),
+      stt_provider: "deepgram".into(),
       echo_cancellation: true,
       noise_suppression: true,
     }
   }
 }
 
-// Global state to track recording status
-// This prevents race conditions where window is visible but recording hasn't started yet
+impl BehaviorPrefs {
+  /// Parses a stored value. Unknown providers fall back to defaults; missing fields keep
+  /// their defaults; a non-object value yields defaults.
+  pub fn from_stored(value: serde_json::Value) -> Self {
+    let mut prefs: BehaviorPrefs = serde_json::from_value(value).unwrap_or_default();
+    if prefs.ai_provider != "openrouter" && prefs.ai_provider != "megallm" {
+      prefs.ai_provider = "openrouter".into();
+    }
+    if prefs.stt_provider != "deepgram" && prefs.stt_provider != "elevenlabs" {
+      prefs.stt_provider = "deepgram".into();
+    }
+    prefs.version = BEHAVIOR_VERSION;
+    prefs
+  }
+}
+
+fn load_behavior(app: &AppHandle) -> BehaviorPrefs {
+  match app.store("prefs.json") {
+    Ok(store) => store
+      .get("behavior")
+      .map(BehaviorPrefs::from_stored)
+      .unwrap_or_default(),
+    Err(_) => BehaviorPrefs::default(),
+  }
+}
+
+fn save_behavior(app: &AppHandle, prefs: &BehaviorPrefs) -> Result<(), String> {
+  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+  store.set("behavior", serde_json::to_value(prefs).map_err(|e| e.to_string())?);
+  store.save().map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DictationState {
   Inactive,
-  Starting,  // Microphone permission + WebSocket connecting
-  Recording, // Actually recording
-  Stopping,  // Processing transcript + refinement
+  Starting,
+  Recording,
+  Stopping,
 }
 
 struct RecordingState {
@@ -104,113 +136,51 @@ struct RecordingState {
   start_time: Option<Instant>,
 }
 
-impl Default for RecordingState {
-  fn default() -> Self {
-    Self { state: DictationState::Inactive, start_time: None }
-  }
-}
-
-static RECORDING_STATE: Mutex<RecordingState> = Mutex::new(RecordingState { state: DictationState::Inactive, start_time: None });
+static RECORDING_STATE: Mutex<RecordingState> = Mutex::new(RecordingState {
+  state: DictationState::Inactive,
+  start_time: None,
+});
 
 #[tauri::command]
 async fn start_dictation(app: AppHandle) -> Result<(), String> {
-  eprintln!("🚀🚀🚀 start_dictation COMMAND INVOKED 🚀🚀🚀");
-
-  // CRITICAL: Check if already starting/recording/stopping - prevent duplicates!
   {
-    let state = RECORDING_STATE.lock().unwrap();
+    let mut state = RECORDING_STATE.lock().unwrap();
     match state.state {
-      DictationState::Starting => {
-        eprintln!("⚠️ Already starting dictation, ignoring duplicate request");
-        return Err("already-starting".into());
-      }
-      DictationState::Recording => {
-        eprintln!("⚠️ Already recording, ignoring duplicate request");
-        return Err("already-recording".into());
-      }
-      DictationState::Stopping => {
-        eprintln!("⚠️ Currently stopping dictation, ignoring request");
-        return Err("currently-stopping".into());
-      }
-      DictationState::Inactive => {
-        eprintln!("✅ State is inactive, proceeding with start");
-      }
+      DictationState::Starting => return Err("already-starting".into()),
+      DictationState::Recording => return Err("already-recording".into()),
+      DictationState::Stopping => return Err("currently-stopping".into()),
+      DictationState::Inactive => state.state = DictationState::Starting,
     }
   }
+  tracing::info!("dictation starting");
 
-  // Set state to Starting IMMEDIATELY to prevent race conditions
-  {
-    let mut state = RECORDING_STATE.lock().unwrap();
-    state.state = DictationState::Starting;
-    eprintln!("🎯 State set to STARTING");
-  }
-
-  // Quick probe: optional. If not acceptable, emit badge and bail.
-  eprintln!("🔍 Probing if text field is accepting input...");
-  let can_paste = probe_text_accepting_impl(&app).await.unwrap_or(true);
-  eprintln!("Probe result: {}", if can_paste { "✅ can paste" } else { "❌ cannot paste" });
-
-  if !can_paste {
-    eprintln!("❌ No text field focused, emitting badge and returning error");
-    // Reset state back to Inactive
-    let mut state = RECORDING_STATE.lock().unwrap();
-    state.state = DictationState::Inactive;
-    app.emit_to("hud", "hud-badge", "No text field is focused").ok();
-    return Err("no-focus".into());
-  }
-
-  // Show HUD window
-  eprintln!("🪟 Getting HUD window...");
-  if let Some(win) = app.get_webview_window("hud") {
-    eprintln!("✅ HUD window found, positioning and showing it...");
-
-    // Position HUD at bottom-center of primary monitor
-    if let Ok(Some(monitor)) = win.primary_monitor() {
-      let monitor_size = monitor.size();
-      let hud_width = 600;
-      let hud_height = 120;
-      let x = (monitor_size.width as i32 - hud_width) / 2;
-      let y = monitor_size.height as i32 - hud_height - 60; // 60px from bottom
-      eprintln!("📍 Positioning HUD at x:{}, y:{} (monitor: {}x{})", x, y, monitor_size.width, monitor_size.height);
-      let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-    } else {
-      eprintln!("⚠️ Could not get primary monitor, using default position");
-    }
-
-    // Try to reposition HUD based on the foreground (focused) window's monitor when available.
-    if let Some((left, top, width, height)) = focused_monitor::work_area_for_foreground_monitor() {
-      let hud_width = 600;
-      let hud_height = 60;
-      let x = left + ((width as i32 - hud_width) / 2);
-      let y = top + (height as i32 - hud_height - 60); // 60px from bottom of that monitor
-      eprintln!(
-        "?? Repositioning HUD to x:{}, y:{} (focused monitor work area: {}x{} at {},{})",
-        x, y, width, height, left, top
-      );
-      let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-    }
-
-
-    let _ = win.show();
-    let _ = win.set_always_on_top(true);
-    // CRITICAL: DO NOT steal focus! User needs focus to stay on their text field
-    // let _ = win.set_focus();
-    eprintln!("✅ HUD window shown, always on top (focus remains on text field)");
-
-    // Emit start event immediately
-    eprintln!("🚀 Emitting dictation-start event...");
-    app.emit_to("hud", "dictation-start", ()).ok();
-    eprintln!("✅✅✅ start_dictation COMPLETED SUCCESSFULLY ✅✅✅");
-    Ok(())
-  } else {
-    eprintln!("❌ HUD window not found!");
+  let Some(win) = app.get_webview_window("hud") else {
+    RECORDING_STATE.lock().unwrap().state = DictationState::Inactive;
     return Err("hud-window-not-found".into());
+  };
+
+  if let Some((left, top, width, height)) = focused_monitor::work_area_for_foreground_monitor() {
+    let hud_width = 600;
+    let hud_height = 60;
+    let x = left + ((width as i32 - hud_width) / 2);
+    let y = top + (height as i32 - hud_height - 60);
+    let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+  } else if let Ok(Some(monitor)) = win.primary_monitor() {
+    let size = monitor.size();
+    let x = (size.width as i32 - 600) / 2;
+    let y = size.height as i32 - 120 - 60;
+    let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
   }
+
+  let _ = win.show();
+  let _ = win.set_always_on_top(true);
+  // Do not focus the HUD; focus must stay in the user's text field.
+  app.emit_to("hud", "dictation-start", ()).ok();
+  Ok(())
 }
 
 #[tauri::command]
 async fn stop_dictation(app: AppHandle) -> Result<(), String> {
-  // Hide HUD immediately
   if let Some(win) = app.get_webview_window("hud") {
     let _ = win.hide();
   }
@@ -218,250 +188,82 @@ async fn stop_dictation(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn is_dictation_active(_app: AppHandle) -> Result<bool, String> {
-  eprintln!("🔍 is_dictation_active COMMAND INVOKED");
+fn is_dictation_active() -> Result<bool, String> {
   let state = RECORDING_STATE.lock().unwrap();
-  // CRITICAL: Return true for ANY non-Inactive state to prevent duplicate starts/stops
-  // Starting: microphone initializing + WebSocket connecting
-  // Recording: actively recording
-  // Stopping: processing transcript + refinement
-  let is_active = !matches!(state.state, DictationState::Inactive);
-  eprintln!("Recording state: {:?} -> {}", state.state, if is_active { "🔴 ACTIVE" } else { "⚪ INACTIVE" });
-  Ok(is_active)
+  Ok(!matches!(state.state, DictationState::Inactive))
 }
 
 #[tauri::command]
-fn set_recording_active(_app: AppHandle, new_state: String) -> Result<(), String> {
-  eprintln!("🎯 set_recording_active COMMAND INVOKED: {}", new_state);
+fn set_recording_active(new_state: String) -> Result<(), String> {
   let mut state = RECORDING_STATE.lock().unwrap();
-
   match new_state.as_str() {
     "recording" => {
       state.state = DictationState::Recording;
       state.start_time = Some(Instant::now());
-      eprintln!("✅ State set to RECORDING");
     }
-    "stopping" => {
-      state.state = DictationState::Stopping;
-      eprintln!("✅ State set to STOPPING");
-    }
+    "stopping" => state.state = DictationState::Stopping,
     "inactive" => {
+      if let Some(start) = state.start_time.take() {
+        tracing::info!(secs = start.elapsed().as_secs_f32(), "dictation ended");
+      }
       state.state = DictationState::Inactive;
-      state.start_time = None;
-      eprintln!("✅ State set to INACTIVE");
     }
-    _ => {
-      eprintln!("❌ Invalid state: {}", new_state);
-      return Err(format!("Invalid state: {}", new_state));
-    }
+    _ => return Err(format!("Invalid state: {new_state}")),
   }
-
+  tracing::debug!(state = %new_state, "recording state set");
   Ok(())
 }
 
 #[tauri::command]
 async fn trigger_stop_dictation(app: AppHandle) -> Result<(), String> {
-  eprintln!("🛑 trigger_stop_dictation COMMAND INVOKED");
-  // Emit event to HUD to trigger stop
   app.emit_to("hud", "dictation-stop", ()).ok();
-  eprintln!("✅ dictation-stop event emitted to HUD");
   Ok(())
 }
 
+/// Deterministic formatting, then optional AI refinement. Always returns usable text when
+/// the input has words: AI failures fall back to the deterministic result.
 #[tauri::command]
-async fn refine_text(
-  raw_text: String,
-  app: AppHandle,
-  openrouter_key: Option<String>,
-  megallm_key: Option<String>,
-  provider: Option<String>,
-) -> Result<String, String> {
-  // Step 1: Symbol replacement layer (STT -> symbols)
+async fn refine_text(raw_text: String, app: AppHandle) -> Result<String, String> {
   let with_symbols = symbols::replace_symbols(&raw_text);
-  eprintln!("📝 After symbol replacement: \"{}\" -> \"{}\"", raw_text, with_symbols);
-
-  // Step 2: Check if AI refinement is enabled
-  let behavior = get_behavior(app.clone()).await.unwrap_or_default();
-
+  let behavior = load_behavior(&app);
   if !behavior.ai_refine {
-    eprintln!("🔕 AI refinement DISABLED, returning symbol-replaced text");
+    tracing::info!(input = %text_shape(&with_symbols), "refinement off; deterministic text used");
     return Ok(with_symbols);
   }
-
-  let chosen_provider = provider
-    .map(|p| p.to_lowercase())
-    .unwrap_or_else(|| behavior.ai_provider.clone());
-  let provider = if chosen_provider == "megallm" { "megallm" } else { "openrouter" };
-
-  eprintln!("🤖 AI refinement ENABLED using provider={}", provider);
-
-  // Step 3: Send to AI for refinement
-  match provider {
-    "megallm" => refine_with_megallm(with_symbols, app, megallm_key).await,
-    _ => refine_with_openrouter(with_symbols, app, openrouter_key).await,
+  match refine::refine_with_provider(&app, &behavior.ai_provider, &with_symbols).await {
+    Ok(refined) => Ok(refined),
+    Err(_) => Ok(refine::basic_punctuation_cleanup(&with_symbols)),
   }
-}
-
-fn refinement_system_prompt() -> &'static str {
-  prompt::get_system_prompt()
-}
-
-/// Check if AI output looks like a refusal/conversation and should be rejected
-/// If rejected, we fall back to the raw STT text
-fn validate_ai_output(refined: &str, raw_text: &str) -> String {
-  // First sanitize any obvious AI additions
-  let sanitized = prompt::sanitize_output(refined);
-  
-  // Check if it looks like an AI refusal/conversation
-  if prompt::is_ai_refusal(&sanitized) {
-    eprintln!("⚠️ AI output detected as refusal/conversation, falling back to raw text");
-    eprintln!("   Rejected output: \"{}\"", sanitized);
-    // Return raw text with basic punctuation cleanup
-    return basic_punctuation_cleanup(raw_text);
-  }
-  
-  // Check if the output is suspiciously different from input
-  // (e.g., AI completely rewrote it or added lots of content)
-  let input_words: Vec<&str> = raw_text.split_whitespace().collect();
-  let output_words: Vec<&str> = sanitized.split_whitespace().collect();
-  
-  // If output is more than 2x the length of input, something is wrong
-  if output_words.len() > input_words.len() * 2 && input_words.len() > 3 {
-    eprintln!("⚠️ AI output suspiciously longer than input, falling back to raw text");
-    eprintln!("   Input words: {}, Output words: {}", input_words.len(), output_words.len());
-    return basic_punctuation_cleanup(raw_text);
-  }
-  
-  sanitized
-}
-
-/// Basic punctuation cleanup for fallback when AI fails
-/// This is a simple rule-based cleanup, not as good as AI but safe
-fn basic_punctuation_cleanup(text: &str) -> String {
-  let mut result = text.trim().to_string();
-  
-  // Capitalize first letter
-  if let Some(first_char) = result.chars().next() {
-    if first_char.is_ascii_lowercase() {
-      result = first_char.to_uppercase().to_string() + &result[1..];
-    }
-  }
-  
-  // Add period at end if no ending punctuation
-  if !result.is_empty() {
-    let last_char = result.chars().last().unwrap();
-    if !matches!(last_char, '.' | '!' | '?' | ',' | ';' | ':') {
-      result.push('.');
-    }
-  }
-  
-  result
-}
-
-fn strip_think_blocks(mut s: String) -> String {
-  while let Some(start) = s.find("<think>") {
-    if let Some(end_rel) = s[start..].find("</think>") {
-      let end = start + end_rel + "</think>".len();
-      s.replace_range(start..end, "");
-    } else {
-      break;
-    }
-  }
-  s.trim().to_string()
-}
-
-async fn refine_with_megallm(raw_text: String, app: AppHandle, megallm_key: Option<String>) -> Result<String, String> {
-  eprintln!("?? Refining text with MegaLLM...");
-
-  let key = match megallm_key {
-    Some(k) if !k.is_empty() => k,
-    _ => config::get_megallm_key(&app).await.ok_or("Missing MegaLLM key")?,
-  };
-  let model = config::get_megallm_model(&app)
-    .await
-    .unwrap_or_else(|| "gpt-4".into());
-
-  let body = serde_json::json!({
-    "model": model,
-    "messages": [
-      {"role":"system","content":refinement_system_prompt()},
-      {"role":"user","content": raw_text}
-    ]
-  });
-
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(5))
-    .build()
-    .map_err(|e| e.to_string())?;
-
-  let resp = client
-    .post("https://ai.megallm.io/v1/chat/completions")
-    .header("content-type", "application/json")
-    .header("authorization", format!("Bearer {}", key))
-    .json(&body)
-    .send()
-    .await
-    .map_err(|e| e.to_string())?;
-
-  let status = resp.status();
-  let text_body = resp.text().await.map_err(|e| e.to_string())?;
-  if !status.is_success() {
-    return Err(format!("MegaLLM HTTP {} - {}", status, text_body));
-  }
-
-  let v: serde_json::Value = serde_json::from_str(&text_body).map_err(|e| e.to_string())?;
-  let refined = v["choices"][0]["message"]["content"]
-    .as_str()
-    .unwrap_or("{}")
-    .to_string();
-  let cleaned = strip_think_blocks(refined);
-  
-  // Validate AI output - if it looks like a refusal/conversation, fall back to raw text
-  let validated = validate_ai_output(&cleaned, &raw_text);
-  eprintln!("✅ MegaLLM refined: \"{}\" -> \"{}\"", raw_text, validated);
-  Ok(validated)
-}
-
-async fn refine_with_openrouter(raw_text: String, app: AppHandle, openrouter_key: Option<String>) -> Result<String, String> {
-  eprintln!("?? Refining text with OpenRouter...");
-
-  let key = match openrouter_key {
-    Some(k) if !k.is_empty() => k,
-    _ => config::get_openrouter_key(&app).await.ok_or("Missing OpenRouter key")?,
-  };
-  let model = config::get_model(&app).await.unwrap_or_else(|| "openai/gpt-oss-20b:free".into());
-
-  let body = serde_json::json!({
-    "model": model,
-    "messages": [
-      {"role":"system","content":refinement_system_prompt()},
-      {"role":"user","content": raw_text}
-    ]
-  });
-  let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
-  let resp = client
-    .post("https://openrouter.ai/api/v1/chat/completions")
-    .header("content-type","application/json")
-    .header("authorization", format!("Bearer {}", key))
-    .json(&body)
-    .send().await.map_err(|e| e.to_string())?;
-  if !resp.status().is_success() { return Err(format!("OpenRouter HTTP {}", resp.status())); }
-  let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-  let refined = v["choices"][0]["message"]["content"].as_str().unwrap_or("{}").to_string();
-  let cleaned = strip_think_blocks(refined);
-  
-  // Validate AI output - if it looks like a refusal/conversation, fall back to raw text
-  let validated = validate_ai_output(&cleaned, &raw_text);
-  eprintln!("✅ OpenRouter refined: \"{}\" -> \"{}\"", raw_text, validated);
-  Ok(validated)
 }
 
 #[tauri::command]
-async fn save_keys_secure(app: AppHandle, openrouter: String, deepgram: String, megallm: String, elevenlabs: String) -> Result<(), String> {
-  if !openrouter.is_empty() { config::set_openrouter_key(&app, &openrouter).await.map_err(|e| e.to_string())?; }
-  if !deepgram.is_empty() { config::set_deepgram_key(&app, &deepgram).await.map_err(|e| e.to_string())?; }
-  if !megallm.is_empty() { config::set_megallm_key(&app, &megallm).await.map_err(|e| e.to_string())?; }
-  if !elevenlabs.is_empty() { config::set_elevenlabs_key(&app, &elevenlabs).await.map_err(|e| e.to_string())?; }
+async fn save_keys_secure(
+  app: AppHandle,
+  openrouter: String,
+  deepgram: String,
+  megallm: String,
+  elevenlabs: String,
+) -> Result<(), String> {
+  if !openrouter.is_empty() {
+    config::set_openrouter_key(&app, &openrouter)
+      .await
+      .map_err(|e| e.to_string())?;
+  }
+  if !deepgram.is_empty() {
+    config::set_deepgram_key(&app, &deepgram)
+      .await
+      .map_err(|e| e.to_string())?;
+  }
+  if !megallm.is_empty() {
+    config::set_megallm_key(&app, &megallm)
+      .await
+      .map_err(|e| e.to_string())?;
+  }
+  if !elevenlabs.is_empty() {
+    config::set_elevenlabs_key(&app, &elevenlabs)
+      .await
+      .map_err(|e| e.to_string())?;
+  }
   Ok(())
 }
 
@@ -476,31 +278,27 @@ async fn get_keys_secure(app: AppHandle) -> Result<(bool, bool, bool, bool), Str
 }
 
 #[tauri::command]
-async fn set_hotkey(app: AppHandle, combo: String) -> Result<(), String> { hotkey::set_hotkey(&app, &combo) }
+async fn set_hotkey(app: AppHandle, combo: String) -> Result<(), String> {
+  hotkey::set_hotkey(&app, &combo)
+}
 
 #[tauri::command]
-async fn get_hotkey(app: AppHandle) -> Result<String, String> { Ok(hotkey::get_hotkey(&app)) }
+async fn get_hotkey(app: AppHandle) -> Result<String, String> {
+  Ok(hotkey::get_hotkey(&app))
+}
 
 #[tauri::command]
 async fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
-  eprintln!("⚙️ set_autostart called: enabled={}", enabled);
   let autolaunch = app.autolaunch();
-  if enabled { autolaunch.enable().map_err(|e| e.to_string())?; } else { autolaunch.disable().map_err(|e| e.to_string())?; }
-  // Persist autostart flag in the Store directly (do not route through set_behavior so we don't drop the field)
-  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
-  let mut prefs = if let Some(v) = store.get("behavior") {
-    eprintln!("set_autostart: existing behavior raw: {}", v);
-    serde_json::from_value::<BehaviorPrefs>(v).unwrap_or_default()
+  if enabled {
+    autolaunch.enable().map_err(|e| e.to_string())?;
   } else {
-    eprintln!("set_autostart: no existing behavior in store");
-    BehaviorPrefs::default()
-  };
+    autolaunch.disable().map_err(|e| e.to_string())?;
+  }
+  let mut prefs = load_behavior(&app);
   prefs.autostart = enabled;
-  let val = serde_json::to_value(&prefs).map_err(|e| e.to_string())?;
-  store.set("behavior", val);
-  store.save().map_err(|e| e.to_string())?;
-  if let Some(v) = store.get("behavior") { eprintln!("set_autostart: after write behavior raw: {}", v); }
-  eprintln!("✅ set_autostart persisted: autostart={} (OS updated)", enabled);
+  save_behavior(&app, &prefs)?;
+  tracing::info!(enabled, "autostart updated");
   Ok(())
 }
 
@@ -509,219 +307,210 @@ fn get_autostart(app: AppHandle) -> Result<bool, String> {
   app.autolaunch().is_enabled().map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct BehaviorPatch {
+  auto_paste: Option<bool>,
+  ai_refine: Option<bool>,
+  ai_provider: Option<String>,
+  stt_provider: Option<String>,
+  echo_cancellation: Option<bool>,
+  noise_suppression: Option<bool>,
+}
+
 #[tauri::command]
-async fn set_behavior(app: AppHandle, args: serde_json::Value) -> Result<BehaviorPrefs, String> {
-  eprintln!("📝 set_behavior called with args: {}", args);
-  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
-
-  // Start from existing prefs or defaults
-  let mut prefs = if let Some(existing) = store.get("behavior") {
-    eprintln!("set_behavior: existing behavior raw: {}", existing);
-    serde_json::from_value::<BehaviorPrefs>(existing).unwrap_or_default()
-  } else {
-    eprintln!("set_behavior: no existing behavior in store");
-    BehaviorPrefs::default()
-  };
-
-  // Accept both snake_case and camelCase keys from the frontend
-  let get_bool = |k1: &str, k2: &str| -> Option<bool> {
-    args.get(k1).and_then(|v| v.as_bool()).or_else(|| args.get(k2).and_then(|v| v.as_bool()))
-  };
-  let get_u32 = |k1: &str, k2: &str| -> Option<u32> {
-    args.get(k1).and_then(|v| v.as_u64()).or_else(|| args.get(k2).and_then(|v| v.as_u64())).map(|x| x as u32)
-  };
-  let get_str = |k1: &str, k2: &str| -> Option<String> {
-    args.get(k1).and_then(|v| v.as_str()).or_else(|| args.get(k2).and_then(|v| v.as_str())).map(|s| s.to_string())
-  };
-
-  if let Some(v) = get_bool("auto_paste", "autoPaste") { prefs.auto_paste = v; }
-  if let Some(v) = get_bool("stream_insert", "streamInsert") { prefs.stream_insert = v; }
-  if let Some(v) = get_bool("ai_refine", "aiRefine") { prefs.ai_refine = v; }
-  if let Some(v) = get_str("ai_provider", "aiProvider") {
-    let normalized = v.to_lowercase();
-    if normalized == "openrouter" || normalized == "megallm" {
-      prefs.ai_provider = normalized;
+async fn set_behavior(app: AppHandle, patch: BehaviorPatch) -> Result<BehaviorPrefs, String> {
+  let mut prefs = load_behavior(&app);
+  if let Some(v) = patch.auto_paste {
+    prefs.auto_paste = v;
+  }
+  if let Some(v) = patch.ai_refine {
+    prefs.ai_refine = v;
+  }
+  if let Some(v) = patch.ai_provider.map(|s| s.to_lowercase()) {
+    if v == "openrouter" || v == "megallm" {
+      prefs.ai_provider = v;
     }
   }
-  if let Some(v) = get_str("stt_provider", "sttProvider") {
-    let normalized = v.to_lowercase();
-    if normalized == "deepgram" || normalized == "elevenlabs" {
-      prefs.stt_provider = normalized;
+  if let Some(v) = patch.stt_provider.map(|s| s.to_lowercase()) {
+    if v == "deepgram" || v == "elevenlabs" {
+      prefs.stt_provider = v;
     }
   }
-  if let Some(v) = get_bool("echo_cancellation", "echoCancellation") { prefs.echo_cancellation = v; }
-  if let Some(v) = get_bool("noise_suppression", "noiseSuppression") { prefs.noise_suppression = v; }
-  if let Some(v) = get_u32("silence_secs", "silenceSecs") { prefs.silence_secs = v; }
-
-  let val = serde_json::to_value(&prefs).map_err(|e| e.to_string())?;
-  store.set("behavior", val);
-  store.save().map_err(|e| e.to_string())?;
-  eprintln!("set_behavior: saved prefs -> {:?}", prefs);
+  if let Some(v) = patch.echo_cancellation {
+    prefs.echo_cancellation = v;
+  }
+  if let Some(v) = patch.noise_suppression {
+    prefs.noise_suppression = v;
+  }
+  save_behavior(&app, &prefs)?;
+  tracing::info!(?prefs, "behavior saved");
   Ok(prefs)
 }
 
 #[tauri::command]
 async fn get_behavior(app: AppHandle) -> Result<BehaviorPrefs, String> {
-  let store = app.store("prefs.json").map_err(|e| e.to_string())?;
-  let mut prefs = if let Some(v) = store.get("behavior") {
-    eprintln!("get_behavior: behavior raw: {}", v);
-    serde_json::from_value(v).unwrap_or_default()
-  } else {
-    eprintln!("get_behavior: no behavior found, using defaults");
-    BehaviorPrefs::default()
-  };
-  // Authoritative autostart value comes from the OS/plugin
-  if let Ok(os_enabled) = app.autolaunch().is_enabled() { prefs.autostart = os_enabled; }
-  eprintln!("📦 get_behavior -> {:?}", prefs);
+  let mut prefs = load_behavior(&app);
+  // The OS is authoritative for autostart.
+  if let Ok(os_enabled) = app.autolaunch().is_enabled() {
+    prefs.autostart = os_enabled;
+  }
   Ok(prefs)
 }
 
 #[tauri::command]
-async fn probe_text_accepting(app: AppHandle) -> Result<bool, String> { probe_text_accepting_impl(&app).await }
-
-async fn probe_text_accepting_impl(app: &AppHandle) -> Result<bool, String> {
-  paste::quick_probe_can_paste(app).await
+async fn set_model(app: AppHandle, name: String) -> Result<(), String> {
+  config::set_model(&app, &name).await.map_err(|e| e.to_string())
 }
-
 #[tauri::command]
-async fn set_model(app: AppHandle, name: String) -> Result<(), String> { config::set_model(&app, &name).await.map_err(|e| e.to_string()) }
+async fn get_model(app: AppHandle) -> Result<String, String> {
+  Ok(
+    config::get_model(&app)
+      .await
+      .unwrap_or_else(|| "openai/gpt-oss-20b:free".into()),
+  )
+}
 #[tauri::command]
-async fn get_model(app: AppHandle) -> Result<String, String> { Ok(config::get_model(&app).await.unwrap_or_else(|| "openai/gpt-oss-20b:free".into())) }
+async fn set_megallm_model(app: AppHandle, name: String) -> Result<(), String> {
+  config::set_megallm_model(&app, &name).await.map_err(|e| e.to_string())
+}
 #[tauri::command]
-async fn set_megallm_model(app: AppHandle, name: String) -> Result<(), String> { config::set_megallm_model(&app, &name).await.map_err(|e| e.to_string()) }
+async fn get_megallm_model(app: AppHandle) -> Result<String, String> {
+  Ok(config::get_megallm_model(&app).await.unwrap_or_else(|| "gpt-4".into()))
+}
 #[tauri::command]
-async fn get_megallm_model(app: AppHandle) -> Result<String, String> { Ok(config::get_megallm_model(&app).await.unwrap_or_else(|| "gpt-4".into())) }
+async fn set_language(app: AppHandle, code: String) -> Result<(), String> {
+  config::set_language(&app, &code).await.map_err(|e| e.to_string())
+}
 #[tauri::command]
-async fn set_language(app: AppHandle, code: String) -> Result<(), String> { config::set_language(&app, &code).await.map_err(|e| e.to_string()) }
-#[tauri::command]
-async fn get_language(app: AppHandle) -> Result<String, String> { Ok(config::get_language(&app).await.unwrap_or_else(|| "en-US".into())) }
+async fn get_language(app: AppHandle) -> Result<String, String> {
+  Ok(config::get_language(&app).await.unwrap_or_else(|| "en-US".into()))
+}
 
 #[tauri::command]
 async fn test_openrouter(app: AppHandle) -> Result<(), String> {
-  let _ = refine_text("ping".into(), app, None, None, Some("openrouter".into())).await?; Ok(())
+  refine::refine_with_provider(&app, "openrouter", "this is a connection test")
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
+/// Cheap Deepgram key validation (no audio, no credits).
 #[tauri::command]
 async fn test_deepgram(app: AppHandle) -> Result<(), String> {
-  // Browser-based test is better; here we just check presence of key.
-  if config::get_deepgram_key(&app).await.is_some() { Ok(()) } else { Err("Missing Deepgram key".into()) }
+  let key = config::get_deepgram_key(&app).await.ok_or("Missing Deepgram key")?;
+  let resp = http_client()?
+    .get("https://api.deepgram.com/v1/auth/token")
+    .header("authorization", format!("Token {key}"))
+    .send()
+    .await
+    .map_err(|_| "Deepgram network error".to_string())?;
+  match resp.status().as_u16() {
+    200..=299 => Ok(()),
+    401 | 403 => Err("Deepgram rejected the key".into()),
+    code => Err(format!("Deepgram HTTP {code}")),
+  }
 }
 
 #[tauri::command]
-async fn test_megallm(app: AppHandle, api_key: Option<String>) -> Result<(), String> {
-  let _ = list_megallm_models(app, api_key).await?; Ok(())
+async fn test_megallm(app: AppHandle) -> Result<(), String> {
+  list_megallm_models(app).await.map(|_| ())
 }
 
-#[tauri::command]
-async fn create_elevenlabs_token(app: AppHandle, api_key: Option<String>) -> Result<String, String> {
-  let key = match api_key {
-    Some(k) if !k.is_empty() => k,
-    _ => config::get_elevenlabs_key(&app).await.ok_or("Missing ElevenLabs key")?,
-  };
-  let client = reqwest::Client::builder()
+fn http_client() -> Result<reqwest::Client, String> {
+  reqwest::Client::builder()
     .timeout(Duration::from_secs(5))
     .build()
-    .map_err(|e| e.to_string())?;
-  let resp = client
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_elevenlabs_token(app: AppHandle) -> Result<String, String> {
+  let key = config::get_elevenlabs_key(&app).await.ok_or("Missing ElevenLabs key")?;
+  let resp = http_client()?
     .post("https://api.elevenlabs.io/v1/single-use-token/realtime_scribe")
     .header("xi-api-key", key)
     .header("content-length", "0")
     .body("")
     .send()
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "ElevenLabs network error".to_string())?;
   let status = resp.status();
-  let body = resp.text().await.map_err(|e| e.to_string())?;
   if !status.is_success() {
-    return Err(format!("ElevenLabs HTTP {} - {}", status, body));
+    return Err(format!("ElevenLabs HTTP {}", status.as_u16()));
   }
-  let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-  let token = v.get("token").and_then(|t| t.as_str()).ok_or("Missing token in ElevenLabs response")?;
-  Ok(token.to_string())
+  let v: serde_json::Value = resp
+    .json()
+    .await
+    .map_err(|_| "ElevenLabs malformed response".to_string())?;
+  v.get("token")
+    .and_then(|t| t.as_str())
+    .map(str::to_string)
+    .ok_or_else(|| "Missing token in ElevenLabs response".into())
 }
 
 #[tauri::command]
-async fn test_elevenlabs(app: AppHandle, api_key: Option<String>) -> Result<(), String> {
-  // Generating a single-use token is a lightweight validity check.
-  let _ = create_elevenlabs_token(app, api_key).await?;
-  Ok(())
+async fn test_elevenlabs(app: AppHandle) -> Result<(), String> {
+  create_elevenlabs_token(app).await.map(|_| ())
 }
 
 #[tauri::command]
-async fn list_megallm_models(app: AppHandle, api_key: Option<String>) -> Result<Vec<String>, String> {
-  let key = match api_key {
-    Some(k) if !k.is_empty() => k,
-    _ => config::get_megallm_key(&app).await.ok_or("Missing MegaLLM key")?,
-  };
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(5))
-    .build()
-    .map_err(|e| e.to_string())?;
-  let resp = client
+async fn list_megallm_models(app: AppHandle) -> Result<Vec<String>, String> {
+  let key = config::get_megallm_key(&app).await.ok_or("Missing MegaLLM key")?;
+  let resp = http_client()?
     .get("https://ai.megallm.io/v1/models")
-    .header("authorization", format!("Bearer {}", key))
+    .bearer_auth(key)
     .send()
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| "MegaLLM network error".to_string())?;
   let status = resp.status();
-  let text = resp.text().await.map_err(|e| e.to_string())?;
-  if !status.is_success() { return Err(format!("MegaLLM HTTP {} - {}", status, text)); }
-  let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-  let models: Vec<String> = v["data"].as_array()
-    .map(|arr| arr.iter().filter_map(|m| m["id"].as_str().map(|s| s.to_string())).collect())
-    .unwrap_or_default();
-  Ok(models)
+  if !status.is_success() {
+    return Err(format!("MegaLLM HTTP {}", status.as_u16()));
+  }
+  let v: serde_json::Value = resp
+    .json()
+    .await
+    .map_err(|_| "MegaLLM malformed response".to_string())?;
+  Ok(
+    v["data"]
+      .as_array()
+      .map(|arr| {
+        arr
+          .iter()
+          .filter_map(|m| m["id"].as_str().map(str::to_string))
+          .collect()
+      })
+      .unwrap_or_default(),
+  )
 }
 
 #[tauri::command]
-async fn insert_text(app: AppHandle, text: String) -> Result<bool, String> { paste::copy_and_paste(&app, &text).await }
-
-#[tauri::command]
-async fn runtime_keys(app: AppHandle) -> Result<(Option<String>, Option<String>, Option<String>, Option<String>), String> {
-  eprintln!("dY\"`dY\"` runtime_keys COMMAND INVOKED dY\"`dY\"`");
-  let or = config::get_openrouter_key(&app).await;
-  let dg = config::get_deepgram_key(&app).await;
-  let mg = config::get_megallm_key(&app).await;
-  let el = config::get_elevenlabs_key(&app).await;
-  eprintln!("Returning keys - OpenRouter: {}, Deepgram: {}, MegaLLM: {}, ElevenLabs: {}",
-    if or.is_some() { "? present" } else { "? missing" },
-    if dg.is_some() { "? present" } else { "? missing" },
-    if mg.is_some() { "? present" } else { "? missing" },
-    if el.is_some() { "? present" } else { "? missing" }
-  );
-  Ok((or, dg, mg, el))
+async fn insert_text(app: AppHandle, text: String) -> Result<bool, String> {
+  let auto_paste = load_behavior(&app).auto_paste;
+  let pasted = paste::copy_and_paste(&app, &text, auto_paste).await?;
+  tracing::info!(text = %text_shape(&text), pasted, auto_paste, "text delivered");
+  Ok(pasted)
 }
 
+/// Temporary: the WebView still runs provider sockets until Phase 2 moves them to Rust.
+#[tauri::command]
+async fn runtime_keys(
+  app: AppHandle,
+) -> Result<(Option<String>, Option<String>, Option<String>, Option<String>), String> {
+  Ok((
+    config::get_openrouter_key(&app).await,
+    config::get_deepgram_key(&app).await,
+    config::get_megallm_key(&app).await,
+    config::get_elevenlabs_key(&app).await,
+  ))
+}
+
+/// Frontend diagnostics. Messages must be content-free; they are length-capped here.
 #[tauri::command]
 fn log_to_terminal(message: String) {
-  eprintln!("[FRONTEND] {}", message);
+  let capped: String = message.chars().take(300).collect();
+  tracing::info!(target: "frontend", "{capped}");
 }
-
-#[tauri::command]
-async fn export_test_keys(app: AppHandle) -> Result<(), String> {
-  let or_key = config::get_openrouter_key(&app).await.unwrap_or_else(|| "NOT_FOUND".into());
-  let dg_key = config::get_deepgram_key(&app).await.unwrap_or_else(|| "NOT_FOUND".into());
-  let mg_key = config::get_megallm_key(&app).await.unwrap_or_else(|| "NOT_FOUND".into());
-  let el_key = config::get_elevenlabs_key(&app).await.unwrap_or_else(|| "NOT_FOUND".into());
-
-  let sep = "=".repeat(60);
-  eprintln!("
-{}", sep);
-  eprintln!("?? API KEYS FOR TESTING:");
-  eprintln!("{}", sep);
-  eprintln!("DEEPGRAM_KEY={}", dg_key);
-  eprintln!("OPENROUTER_KEY={}", or_key);
-  eprintln!("MEGALLM_API_KEY={}", mg_key);
-  eprintln!("ELEVENLABS_API_KEY={}", el_key);
-  eprintln!("{}", sep);
-  eprintln!("
-Run the test with:");
-  eprintln!("node test-apis.mjs {} {}", dg_key, or_key);
-  eprintln!("");
-
-  Ok(())
-}
-
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
   let menu = Menu::new(app)?;
@@ -729,50 +518,39 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
   let start = MenuItem::with_id(app, "start", "Start Dictation", true, None::<&str>)?;
   let stop = MenuItem::with_id(app, "stop", "Stop Dictation", true, None::<&str>)?;
   let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-  let _ = menu.append(&settings)?;
-  let _ = menu.append(&start)?;
-  let _ = menu.append(&stop)?;
-  let _ = menu.append(&quit)?;
-    let _tray = TrayIconBuilder::with_id("main")
-      .tooltip("Dictation HUD")
-      .icon(app.default_window_icon().unwrap().clone())
-      .menu(&menu)
+  menu.append(&settings)?;
+  menu.append(&start)?;
+  menu.append(&stop)?;
+  menu.append(&quit)?;
+  let _tray = TrayIconBuilder::with_id("main")
+    .tooltip("Dictation HUD")
+    .icon(app.default_window_icon().unwrap().clone())
+    .menu(&menu)
     .on_menu_event(|app, event| {
-      eprintln!("🎯🎯🎯 TRAY MENU EVENT: {}", event.id.as_ref());
+      tracing::debug!(id = event.id.as_ref(), "tray menu event");
       match event.id.as_ref() {
         "settings" => {
-          eprintln!("📝 Tray: Opening settings window...");
-          if let Some(w) = app.get_webview_window("settings") { let _ = w.show(); let _ = w.set_focus(); }
-        },
-        "start" => {
-          eprintln!("🚀🚀🚀 Tray: Start Dictation clicked! 🚀🚀🚀");
-          let app_clone = app.clone();
-          tauri::async_runtime::spawn(async move {
-            eprintln!("⚡ Spawning async task for start_dictation...");
-            match start_dictation(app_clone).await {
-              Ok(_) => eprintln!("✅ Tray start_dictation completed successfully"),
-              Err(e) => eprintln!("❌ Tray start_dictation FAILED: {}", e),
-            }
-          });
-        },
-        "stop" => {
-          eprintln!("⏹️ Tray: Stop Dictation clicked!");
-          let app_clone = app.clone();
-          tauri::async_runtime::spawn(async move {
-            eprintln!("⚡ Spawning async task for stop_dictation...");
-            match stop_dictation(app_clone).await {
-              Ok(_) => eprintln!("✅ Tray stop_dictation completed successfully"),
-              Err(e) => eprintln!("❌ Tray stop_dictation FAILED: {}", e),
-            }
-          });
-        },
-        "quit" => {
-          eprintln!("👋 Tray: Quit clicked, exiting app...");
-          app.exit(0);
-        },
-        _ => {
-          eprintln!("⚠️ Unknown tray menu event: {}", event.id.as_ref());
+          if let Some(w) = app.get_webview_window("settings") {
+            let _ = w.show();
+            let _ = w.set_focus();
+          }
         }
+        "start" => {
+          let app = app.clone();
+          tauri::async_runtime::spawn(async move {
+            if let Err(e) = start_dictation(app).await {
+              tracing::warn!(error = %e, "tray start failed");
+            }
+          });
+        }
+        "stop" => {
+          let app = app.clone();
+          tauri::async_runtime::spawn(async move {
+            let _ = trigger_stop_dictation(app).await;
+          });
+        }
+        "quit" => app.exit(0),
+        _ => {}
       }
     })
     .on_tray_icon_event(|_app, _ev: TrayIconEvent| {})
@@ -783,32 +561,111 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
   tauri::Builder::default()
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-      if let Some(w) = app.get_webview_window("settings") { let _ = w.show(); let _ = w.set_focus(); }
+      if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.set_focus();
+      }
     }))
     .plugin(tauri_plugin_store::Builder::default().build())
-    .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+    .plugin(tauri_plugin_autostart::init(
+      tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+      None,
+    ))
     .plugin(tauri_plugin_global_shortcut::Builder::new().build())
     .plugin(tauri_plugin_clipboard_manager::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
     .setup(|app| {
-      // ensure windows exist & hidden by default
-      if let Some(s) = app.get_webview_window("settings") { let _ = s.hide(); }
-      if let Some(h) = app.get_webview_window("hud") { let _ = h.hide(); let _ = h.set_decorations(false); let _ = h.set_always_on_top(true); }
+      if let Ok(dir) = app.path().app_log_dir() {
+        if let Some(guard) = logging::init(&dir) {
+          app.manage(guard);
+        }
+      }
+      tracing::info!(version = %app.package_info().version, "Dictation HUD starting");
+      if let Some(s) = app.get_webview_window("settings") {
+        let _ = s.hide();
+      }
+      if let Some(h) = app.get_webview_window("hud") {
+        let _ = h.hide();
+        let _ = h.set_decorations(false);
+        let _ = h.set_always_on_top(true);
+      }
       build_tray(app)?;
       let _ = hotkey::ensure_default_hotkey(app.handle().clone());
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
-      start_dictation, stop_dictation, is_dictation_active, set_recording_active, trigger_stop_dictation,
+      start_dictation,
+      stop_dictation,
+      is_dictation_active,
+      set_recording_active,
+      trigger_stop_dictation,
       refine_text,
-      save_keys_secure, get_keys_secure,
-      set_hotkey, get_hotkey,
-      set_autostart, set_behavior, get_behavior,
-      probe_text_accepting,
-      set_model, get_model, set_megallm_model, get_megallm_model, set_language, get_language,
-      test_openrouter, test_deepgram, test_megallm, test_elevenlabs, list_megallm_models, create_elevenlabs_token,
-      insert_text, runtime_keys, log_to_terminal, export_test_keys, get_autostart
+      save_keys_secure,
+      get_keys_secure,
+      set_hotkey,
+      get_hotkey,
+      set_autostart,
+      set_behavior,
+      get_behavior,
+      set_model,
+      get_model,
+      set_megallm_model,
+      get_megallm_model,
+      set_language,
+      get_language,
+      test_openrouter,
+      test_deepgram,
+      test_megallm,
+      test_elevenlabs,
+      list_megallm_models,
+      create_elevenlabs_token,
+      insert_text,
+      runtime_keys,
+      log_to_terminal,
+      get_autostart
     ])
     .run(context)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn partial_behavior_keeps_defaults_for_missing_fields() {
+    let stored = serde_json::json!({ "ai_refine": false, "auto_paste": false });
+    let prefs = BehaviorPrefs::from_stored(stored);
+    assert!(!prefs.ai_refine);
+    assert!(!prefs.auto_paste);
+    assert!(prefs.echo_cancellation);
+    assert!(prefs.noise_suppression);
+    assert_eq!(prefs.stt_provider, "deepgram");
+  }
+
+  #[test]
+  fn legacy_behavior_with_removed_fields_loads() {
+    let stored = serde_json::json!({
+      "auto_paste": true, "silence_secs": 2, "stream_insert": false, "autostart": true,
+      "ai_refine": true, "ai_provider": "megallm", "stt_provider": "elevenlabs",
+      "echo_cancellation": false, "noise_suppression": true
+    });
+    let prefs = BehaviorPrefs::from_stored(stored);
+    assert_eq!(prefs.ai_provider, "megallm");
+    assert_eq!(prefs.stt_provider, "elevenlabs");
+    assert!(!prefs.echo_cancellation);
+    assert!(prefs.autostart);
+    assert_eq!(prefs.version, BEHAVIOR_VERSION);
+  }
+
+  #[test]
+  fn invalid_values_fall_back_safely() {
+    let prefs = BehaviorPrefs::from_stored(serde_json::json!({ "stt_provider": "whisper", "ai_refine": "yes" }));
+    // Wrong type for one field makes serde reject the object; we fall back to defaults.
+    assert_eq!(prefs, BehaviorPrefs::default());
+    let prefs = BehaviorPrefs::from_stored(serde_json::json!({ "stt_provider": "whisper" }));
+    assert_eq!(prefs.stt_provider, "deepgram");
+    let prefs = BehaviorPrefs::from_stored(serde_json::json!("garbage"));
+    assert_eq!(prefs, BehaviorPrefs::default());
+  }
 }

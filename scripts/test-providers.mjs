@@ -4,10 +4,6 @@ const OR_KEY = process.env.OPENROUTER_API_KEY;
 const OR_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-oss-20b:free';
 const DG_KEY = process.env.DEEPGRAM_API_KEY;
 
-function timeout(ms) {
-  return new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
-}
-
 async function testOpenRouter() {
   if (!OR_KEY) throw new Error('Missing OPENROUTER_API_KEY');
   const ctrl = new AbortController();
@@ -37,8 +33,8 @@ async function testDeepgram() {
   const { WebSocket } = await import('ws');
   await new Promise((resolve, reject) => {
     const ws = new WebSocket('wss://api.deepgram.com/v1/listen', { headers: { Authorization: `Token ${DG_KEY}` } });
-    const to = setTimeout(()=> { try { ws.terminate(); } catch {} reject(new Error('Deepgram timeout')); }, 3000);
-    ws.on('open', () => { clearTimeout(to); try { ws.close(); } catch {} resolve(); });
+    const to = setTimeout(()=> { ws.terminate(); reject(new Error('Deepgram timeout')); }, 3000);
+    ws.on('open', () => { clearTimeout(to); ws.close(); resolve(); });
     ws.on('error', (e) => { clearTimeout(to); reject(e); });
   });
 }

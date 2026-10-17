@@ -23,8 +23,6 @@
     "global-shortcut:allow-is-registered",
     "clipboard-manager:default",
     "autostart:default",
-    "store:default",
-    "stronghold:default",
     "updater:default",
     "process:default"
   ]

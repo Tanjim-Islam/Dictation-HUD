@@ -1,41 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Edit3 } from 'lucide-react';
+import { eventToKeyArray } from '../lib/shortcut';
 
 interface KeyRecorderProps {
   value: string;
   onChange: (combo: string) => void;
   onSave: () => void;
-}
-
-// Normalize key names for cross-platform consistency
-function normalizeKey(key: string): string {
-  const map: Record<string, string> = {
-    'Control': 'Ctrl',
-    'Meta': 'Cmd',
-    'AltGraph': 'Alt',
-    ' ': 'Space',
-  };
-  return map[key] || key;
-}
-
-// Convert event to modifier + key array
-function eventToKeyArray(e: KeyboardEvent): string[] {
-  const parts: string[] = [];
-
-  // Add modifiers in consistent order
-  if (e.ctrlKey) parts.push('Ctrl');
-  if (e.metaKey) parts.push('Cmd');
-  if (e.shiftKey) parts.push('Shift');
-  if (e.altKey) parts.push('Alt');
-
-  // Add the main key (if not a modifier itself)
-  const key = normalizeKey(e.key);
-  if (!['Control', 'Shift', 'Alt', 'Meta', 'Cmd', 'Ctrl', 'AltGraph'].includes(key)) {
-    parts.push(key.length === 1 ? key.toUpperCase() : key);
-  }
-
-  return parts;
 }
 
 export function KeyRecorder({ value, onChange, onSave }: KeyRecorderProps) {

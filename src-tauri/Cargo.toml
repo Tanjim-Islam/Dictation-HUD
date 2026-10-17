@@ -6,32 +6,33 @@ authors = ["You"]
 edition = "2021"
 
 [build-dependencies]
-tauri-build = { version = "2.0.0-rc.3", features = [] }
+tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
-tauri = { version = "2.0.0-rc.3", features = ["tray-icon"] }
+tauri = { version = "2.9", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 dotenvy = "0.15"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"], optional = true }
 
-tauri-plugin-global-shortcut = { version = "2.0.0-rc.3" }
-tauri-plugin-autostart = { version = "2.0.0-rc.3" }
-tauri-plugin-clipboard-manager = { version = "2.0.0-rc.3" }
-tauri-plugin-single-instance = { version = "2.0.0-rc.3" }
-tauri-plugin-store = { version = "2.0.0-rc.3" }
-tauri-plugin-stronghold = { version = "2.0.0-rc.3" }
-tauri-plugin-updater = { version = "2.0.0-rc.1" }
-tauri-plugin-process = { version = "2.0.0-rc.1" }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-store = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
-# Optional native input helpers; disabled by default
-rdev = { version = "0.5.3", optional = true }
+# Native input helper for the paste keystroke
 enigo = { version = "0.2.1", optional = true }
 
 [features]
 default = ["native-input", "windows-monitor"]
-native-input = ["rdev", "enigo"]
+native-input = ["enigo"]
 windows-monitor = ["windows"]

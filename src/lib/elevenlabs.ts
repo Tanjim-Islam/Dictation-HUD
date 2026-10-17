@@ -1,109 +1,87 @@
-import { invoke } from '@tauri-apps/api/core';
+/* ElevenLabs realtime client (temporary WebView path; moves to Rust in Phase 2). */
+
+import { log } from './log';
 
 type Handlers = {
   onTranscript?: (text: string, isFinal: boolean) => void;
-  onError?: (err: any) => void;
+  onError?: (err: unknown) => void;
   onOpen?: () => void;
   onClose?: () => void;
 };
 
-function log(msg: string) {
-  console.log(msg);
-  invoke('log_to_terminal', { message: msg }).catch(() => {});
-}
-
 function toBase64(buffer: ArrayBuffer): string {
   let binary = '';
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
 export async function startElevenLabsStream(token: string, stream: MediaStream, handlers: Handlers = {}) {
   const params = new URLSearchParams({
     model_id: 'scribe_v2_realtime',
-    // Use VAD-based committing by default so segments are finalized automatically.
-    // We still send a manual commit on stop as an extra guarantee.
     commit_strategy: 'vad',
     audio_format: 'pcm_16000',
-    token: token,
+    token,
   });
-  const wsUrl = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?${params.toString()}`;
-
-  const ws = new WebSocket(wsUrl);
+  const ws = new WebSocket(`wss://api.elevenlabs.io/v1/speech-to-text/realtime?${params.toString()}`);
   ws.binaryType = 'arraybuffer';
 
   let stopSending = false;
-  let audioContext: AudioContext | null = null;
-  let source: MediaStreamAudioSourceNode | null = null;
-  let processor: ScriptProcessorNode | null = null;
   let commitResolve: (() => void) | null = null;
-  const commitPromise = new Promise<void>((resolve) => { commitResolve = resolve; });
+  const commitPromise = new Promise<void>((resolve) => {
+    commitResolve = resolve;
+  });
   const resolveCommitOnce = () => {
-    if (commitResolve) {
-      commitResolve();
-      commitResolve = null;
-    }
+    commitResolve?.();
+    commitResolve = null;
   };
 
   ws.onopen = () => {
-    log('[ElevenLabs] WebSocket OPENED');
+    log('[ElevenLabs] socket open');
     handlers.onOpen?.();
   };
-
-  ws.onerror = (e) => {
-    log('[ElevenLabs] WebSocket ERROR: ' + String(e));
-    handlers.onError?.(e);
+  ws.onerror = () => {
+    log('[ElevenLabs] socket error');
+    handlers.onError?.(new Error('elevenlabs socket error'));
   };
-
   ws.onclose = (e) => {
-    log(`[ElevenLabs] WebSocket CLOSED: code=${e.code} reason=${e.reason}`);
+    log(`[ElevenLabs] socket closed code=${e.code}`);
     handlers.onClose?.();
   };
-
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data));
-      log('[ElevenLabs] Message: ' + JSON.stringify(msg));
       const type = msg?.message_type;
+      const text: string = msg?.text || msg?.transcript || '';
       if (type === 'partial_transcript') {
-        const text = msg.text || msg.transcript || '';
         if (text) handlers.onTranscript?.(text, false);
       } else if (type === 'committed_transcript') {
-        const text = msg.text || msg.transcript || '';
         if (text) handlers.onTranscript?.(text, true);
         resolveCommitOnce();
-      } else if (type === 'error') {
-        handlers.onError?.(msg);
+      } else if (typeof type === 'string' && type.includes('error')) {
+        log(`[ElevenLabs] error message type=${type}`);
+        handlers.onError?.(new Error(type));
       }
-    } catch (err) {
-      log('[ElevenLabs] Failed to parse message: ' + String(err));
+    } catch {
+      log('[ElevenLabs] unparseable message');
     }
   };
 
-  // Audio pipeline: mic -> processor -> destination (silent)
-  audioContext = new AudioContext({ sampleRate: 16000 });
-  source = audioContext.createMediaStreamSource(stream);
-  processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const audioContext = new AudioContext({ sampleRate: 16000 });
+  const source = audioContext.createMediaStreamSource(stream);
+  const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
   processor.onaudioprocess = (e) => {
     if (stopSending || ws.readyState !== WebSocket.OPEN) return;
     const input = e.inputBuffer.getChannelData(0);
-    const int16 = new Int16Array(input.length);
+    const pcm = new Int16Array(input.length);
     for (let i = 0; i < input.length; i++) {
       const s = Math.max(-1, Math.min(1, input[i]));
-      int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
-    const payload = {
-      message_type: 'input_audio_chunk',
-      audio_base_64: toBase64(int16.buffer),
-      sample_rate: 16000,
-      commit: false,
-    };
-    ws.send(JSON.stringify(payload));
+    ws.send(
+      JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: toBase64(pcm.buffer), sample_rate: 16000, commit: false }),
+    );
   };
 
   source.connect(processor);
@@ -113,34 +91,21 @@ export async function startElevenLabsStream(token: string, stream: MediaStream, 
     stop: async () => {
       stopSending = true;
       try {
-        if (processor && source) {
-          processor.disconnect();
-          source.disconnect();
-        }
-        if (audioContext) {
-          audioContext.close().catch(() => {});
-        }
-      } catch (err) {
-        log('[ElevenLabs] Error stopping audio graph: ' + String(err));
+        processor.disconnect();
+        source.disconnect();
+        audioContext.close().catch(() => {});
+      } catch {
+        log('[ElevenLabs] audio graph teardown failed');
       }
       try {
         if (ws.readyState === WebSocket.OPEN) {
-          // Request a manual commit and send an explicit commit chunk to force finalization
-          ws.send(JSON.stringify({ message_type: 'commit' }));
-          ws.send(JSON.stringify({
-            message_type: 'input_audio_chunk',
-            audio_base_64: '',
-            sample_rate: 16000,
-            commit: true,
-          }));
+          ws.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: '', sample_rate: 16000, commit: true }));
           await Promise.race([commitPromise, new Promise((resolve) => setTimeout(resolve, 5000))]);
           resolveCommitOnce();
-          try { ws.close(); } catch {}
-        } else {
-          try { ws.close(); } catch {}
         }
-      } catch (err) {
-        log('[ElevenLabs] Error closing WebSocket: ' + String(err));
+        ws.close();
+      } catch {
+        log('[ElevenLabs] socket close failed');
       }
     },
   };

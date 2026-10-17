@@ -23,3 +23,5 @@ src-tauri/*.dSYM
 .env
 scripts/test-elevenlabs-realtime.mjs
 ~
+DICTATION_REBUILD_PLAN.md
+.scratch/

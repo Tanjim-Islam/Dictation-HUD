@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -9,9 +9,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, Loader2, Minus, X as XIcon, Download, RefreshCw } from 'lucide-react';
 // open external link using the browser; avoids requiring shell plugin here
 import { Switch } from '../components/Switch';
-import { ChevronRight, ChevronDown, KeyRound, Rocket, Save, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronDown, KeyRound, Save, Settings as SettingsIcon } from 'lucide-react';
 import { log, error as logError, warn as logWarn } from '../lib/log';
 import { KeyRecorder } from '../components/KeyRecorder';
+
+type BehaviorPrefs = {
+  auto_paste: boolean;
+  autostart: boolean;
+  ai_refine: boolean;
+  ai_provider: 'openrouter' | 'megallm';
+  stt_provider: 'deepgram' | 'elevenlabs';
+  echo_cancellation: boolean;
+  noise_suppression: boolean;
+};
 
 type KeysPresent = { openrouter: boolean; deepgram: boolean; megallm: boolean; elevenlabs: boolean };
 
@@ -27,14 +37,14 @@ type UpdateState = {
 };
 
 // Global update state and callbacks
-let globalUpdateState: UpdateState = {
+const globalUpdateState: UpdateState = {
   status: 'idle',
   progress: 0,
   pendingUpdate: null,
   error: null,
   newVersion: null,
 };
-let updateListeners: Set<(state: UpdateState) => void> = new Set();
+const updateListeners: Set<(state: UpdateState) => void> = new Set();
 
 function notifyUpdateListeners() {
   updateListeners.forEach(listener => listener({ ...globalUpdateState }));
@@ -99,12 +109,12 @@ async function downloadAndInstallGlobal(): Promise<void> {
           log(`Download started, size: ${contentLength}`);
           console.log(`Download started, size: ${contentLength} bytes`);
           break;
-        case 'Progress':
+        case 'Progress': {
           downloaded += event.data.chunkLength;
-          const progress = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
-          globalUpdateState.progress = progress;
+          globalUpdateState.progress = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
           notifyUpdateListeners();
           break;
+        }
         case 'Finished':
           log('✅ Download finished');
           console.log('✅ Download finished');
@@ -349,7 +359,7 @@ function UpdateSection({ onToast }: { onToast: (text: string, kind: 'ok' | 'err'
       lastToastRef.current = toastKey;
       onToast(toastText, toastKind);
     }
-  }, [updateState.status, onToast]);
+  }, [updateState.status, updateState.newVersion, updateState.error, onToast]);
 
   const getStatusText = () => {
     switch (updateState.status) {
@@ -433,7 +443,6 @@ function Toast({ text, kind }: { text: string; kind: 'ok'|'err' }) {
 export function Settings() {
   const [version, setVersion] = useState('');
   const [autoPaste, setAutoPaste] = useState(true);
-  const [streamInsert, setStreamInsert] = useState(false);
   const [autostart, setAutostart] = useState(false);
   const [aiRefine, setAiRefine] = useState(true);
   const [aiProvider, setAiProvider] = useState<'openrouter' | 'megallm'>('openrouter');
@@ -503,11 +512,9 @@ export function Settings() {
         console.error('Failed to get hotkey:', e);
       });
 
-    invoke<any>('get_behavior')
-      .then((b: any) => {
-        log('✅ get_behavior returned:', b);
+    invoke<BehaviorPrefs>('get_behavior')
+      .then((b) => {
         setAutoPaste(!!b?.auto_paste);
-        setStreamInsert(!!b?.stream_insert);
         setAutostart(!!b?.autostart);
         setAiRefine(b?.ai_refine !== false); // Default to true if not set
         if (b?.ai_provider === 'megallm' || b?.ai_provider === 'openrouter') {
@@ -543,26 +550,6 @@ export function Settings() {
       .catch((e) => console.error('Failed to get language:', e));
   }, []);
 
-  // Load echo cancellation / noise suppression flags so Behavior toggles reflect stored prefs
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem('dictation-audio-flags');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (typeof parsed.echoCancellation === 'boolean') {
-          setEchoCancellation(parsed.echoCancellation);
-        }
-        if (typeof parsed.noiseSuppression === 'boolean') {
-          setNoiseSuppression(parsed.noiseSuppression);
-        }
-      }
-    } catch (e) {
-      logError('Failed to load audio flags from localStorage:', e);
-    }
-  }, []);
-
-  const sttOk = sttProvider === 'elevenlabs' ? keysPresent.elevenlabs : keysPresent.deepgram;
-  const keysOk = sttOk && (aiProvider === 'megallm' ? keysPresent.megallm : keysPresent.openrouter);
 
   function validateKeys(or: string, dg: string, mg: string, el: string) {
     const orOk = !or || /^sk-or-v1-[a-zA-Z0-9]{32,}$/.test(or);
@@ -573,29 +560,13 @@ export function Settings() {
     return { orOk, dgOk, mgOk, elOk };
   }
   useEffect(()=>{ validateKeys(openrouterKey, deepgramKey, megallmKey, elevenlabsKey); }, [openrouterKey, deepgramKey, megallmKey, elevenlabsKey]);
-  useEffect(() => {
-    try {
-      const payload = {
-        echoCancellation,
-        noiseSuppression,
-      };
-      window.localStorage.setItem('dictation-audio-flags', JSON.stringify(payload));
-    } catch (e) {
-      logError('Failed to persist audio flags to localStorage:', e);
-    }
-  }, [echoCancellation, noiseSuppression]);
   useEffect(() => { setModelMenuOpen(false); }, [aiProvider]);
 
-  // Debug: log every behavior toggle change (user or programmatic)
-  useEffect(() => { log('🔁 [BEHAVIOR] autoPaste ->', autoPaste); }, [autoPaste]);
-  useEffect(() => { log('🔁 [BEHAVIOR] aiRefine ->', aiRefine); }, [aiRefine]);
-  useEffect(() => { log('🔁 [BEHAVIOR] streamInsert ->', streamInsert); }, [streamInsert]);
-  useEffect(() => { log('🔁 [BEHAVIOR] autostart ->', autostart); }, [autostart]);
 
     async function switchProvider(next: 'openrouter' | 'megallm') {
     setAiProvider(next);
     try {
-      await invoke('set_behavior', { args: { ai_provider: next, aiProvider: next, ai_refine: aiRefine } });
+      await invoke('set_behavior', { patch: { ai_provider: next } });
     } catch (e) {
       logWarn('Failed to persist provider switch', e);
     }
@@ -604,7 +575,7 @@ export function Settings() {
   async function switchSttProvider(next: 'deepgram' | 'elevenlabs') {
     setSttProvider(next);
     try {
-      await invoke('set_behavior', { args: { stt_provider: next, sttProvider: next } });
+      await invoke('set_behavior', { patch: { stt_provider: next } });
     } catch (e) {
       logWarn('Failed to persist STT provider switch', e);
     }
@@ -620,154 +591,57 @@ async function saveKeys() {
     setToast({ text: 'Saved successfully', kind: 'ok' }); setTimeout(()=> setToast(null), 2000);
   }
 
-  async function testDeepgram() {
+  // Tests always run in Rust against the stored key. A typed key is saved first.
+  async function runKeyTest(command: string, label: string, pendingKey: string, setBusy: (busy: boolean) => void) {
     try {
-      setTesting('dg');
-      const [_, dg] = await invoke<[string|null,string|null,string|null,string|null]>('runtime_keys');
-      const keyToTest = deepgramKey || (dg as any) || '';
-      if (!keyToTest) {
-        setToast({ text: 'No Deepgram key to test', kind: 'err' });
-        setTesting(null);
-        setTimeout(() => setToast(null), 2000);
-        return;
-      }
-      // Browser test via WS; Deepgram accepts token in subprotocol
-      await new Promise<void>((resolve, reject) => {
-        const ws = new WebSocket('wss://api.deepgram.com/v1/listen', ['token', keyToTest]);
-        const to = setTimeout(()=> { try { ws.close(); } catch {} reject(new Error('timeout')); }, 2500);
-        ws.onopen = () => { clearTimeout(to); try { ws.close(); } catch {}; resolve(); };
-        ws.onerror = () => { clearTimeout(to); reject(new Error('error')); };
-      });
-      setToast({ text: 'Deepgram key valid ✅', kind: 'ok' });
-    } catch { setToast({ text: 'Deepgram key invalid ❌', kind: 'err' }); }
-    finally { setTesting(null); setTimeout(()=> setToast(null), 2000); }
-  }
-  async function testOpenRouter() {
-    try {
-      setTesting('or');
-      const [or] = await invoke<[string|null,string|null,string|null,string|null]>('runtime_keys');
-      const keyToTest = openrouterKey || (or as any) || '';
-      if (!keyToTest) {
-        setToast({ text: 'No OpenRouter key to test', kind: 'err' });
-        setTesting(null);
-        setTimeout(() => setToast(null), 2000);
-        return;
-      }
-      const ctl = new AbortController(); const t = setTimeout(()=> ctl.abort(), 3000);
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', { method:'POST', headers:{'content-type':'application/json','authorization':`Bearer ${keyToTest}`}, body: JSON.stringify({ model: model, messages:[{role:'system', content:'Return plain text.'},{role:'user', content:'ping'}] }), signal: ctl.signal });
-      clearTimeout(t);
-      if (!res.ok) throw new Error(String(res.status));
-      setToast({ text: 'OpenRouter key valid ✅', kind: 'ok' });
-    } catch { setToast({ text: 'OpenRouter key invalid ❌', kind: 'err' }); }
-    finally { setTesting(null); setTimeout(()=> setToast(null), 2000); }
-  }
-
-  async function testMegaLLM() {
-    try {
-      setTestingMega(true);
-      const [_, __, mg] = await invoke<[string|null,string|null,string|null,string|null]>('runtime_keys');
-      const keyToTest = megallmKey || (mg as any) || '';
-      if (!keyToTest) {
-        setToast({ text: 'No MegaLLM key to test', kind: 'err' });
-        setTestingMega(false);
-        setTimeout(() => setToast(null), 2000);
-        return;
-      }
-      await invoke('test_megallm', { apiKey: keyToTest });
-      setToast({ text: 'MegaLLM key valid ✅', kind: 'ok' });
+      setBusy(true);
+      if (pendingKey) await saveKeys();
+      await invoke(command);
+      setToast({ text: `${label} key valid`, kind: 'ok' });
     } catch (e) {
-      console.error(e);
-      const msg = e instanceof Error ? e.message : String(e);
-      setToast({ text: `MegaLLM test failed: ${msg}`, kind: 'err' });
+      setToast({ text: `${label} test failed: ${e instanceof Error ? e.message : String(e)}`, kind: 'err' });
     } finally {
-      setTestingMega(false);
-      setTimeout(()=> setToast(null), 2000);
+      setBusy(false);
+      setTimeout(() => setToast(null), 2500);
     }
   }
+  const testDeepgram = () => runKeyTest('test_deepgram', 'Deepgram', deepgramKey, (b) => setTesting(b ? 'dg' : null));
+  const testOpenRouter = () => runKeyTest('test_openrouter', 'OpenRouter', openrouterKey, (b) => setTesting(b ? 'or' : null));
+  const testElevenLabs = () => runKeyTest('test_elevenlabs', 'ElevenLabs', elevenlabsKey, (b) => setTesting(b ? 'el' : null));
+  const testMegaLLM = () => runKeyTest('test_megallm', 'MegaLLM', megallmKey, setTestingMega);
 
   async function fetchMegaModels() {
     setModelError(null);
     try {
       setModelLoading(true);
-      const [_, __, mg] = await invoke<[string|null,string|null,string|null,string|null]>('runtime_keys');
-      const key = megallmKey || (mg as any) || '';
-      if (!key) {
-        setToast({ text: 'Add MegaLLM key first', kind: 'err' });
-        setModelError('Add API key first');
-        setModelLoading(false);
-        setTimeout(() => setToast(null), 2000);
-        return;
-      }
-      const models = await invoke<string[]>('list_megallm_models', { apiKey: key });
+      if (megallmKey) await saveKeys();
+      const models = await invoke<string[]>('list_megallm_models');
       setModelList(models);
       setModelMenuOpen(true);
-    } catch (e) {
-      console.error(e);
-      setModelError('Failed to load models');
-      setToast({ text: 'Model fetch failed', kind: 'err' });
-      setTimeout(() => setToast(null), 2000);
+    } catch {
+      setModelError('Failed to load models. Save a MegaLLM key first.');
     } finally {
       setModelLoading(false);
     }
   }
 
-  async function testElevenLabs() {
-    try {
-      setTesting('el');
-      const [_, __, ___, el] = await invoke<[string|null,string|null,string|null,string|null]>('runtime_keys');
-      const keyToTest = elevenlabsKey || (el as any) || '';
-      if (!keyToTest) {
-        setToast({ text: 'No ElevenLabs key to test', kind: 'err' });
-        setTesting(null);
-        setTimeout(() => setToast(null), 2000);
-        return;
-      }
-      await invoke('test_elevenlabs', { api_key: keyToTest });
-      setToast({ text: 'ElevenLabs key valid ✅', kind: 'ok' });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setToast({ text: `ElevenLabs test failed: ${msg}`, kind: 'err' });
-    } finally {
-      setTesting(null);
-      setTimeout(()=> setToast(null), 2000);
-    }
-  }
-
 async function persistBehavior() {
-    log('🖫 Save Behavior clicked with:', { autoPaste, streamInsert, aiRefine, autostart });
     try {
-      // Build payload with both snake_case and camelCase to be robust
-      const payload: any = {
+      const patch = {
         auto_paste: autoPaste,
-        autoPaste,
-        silence_secs: 2,
-        silenceSecs: 2,
-        stream_insert: streamInsert,
-        streamInsert,
         ai_refine: aiRefine,
-        aiRefine,
         ai_provider: aiProvider,
-        aiProvider,
         stt_provider: sttProvider,
-        sttProvider,
         echo_cancellation: echoCancellation,
-        echoCancellation,
         noise_suppression: noiseSuppression,
-        noiseSuppression,
       };
-      log('➡️ set_behavior payload:', payload);
-      // Persist behavior and get the saved struct back
-      // Backend expects a single parameter named `args` (serde_json::Value)
-      const saved = await invoke<any>('set_behavior', { args: payload });
-      log('✅ set_behavior returned:', saved);
-      // Reflect saved values from backend immediately
-      setAutoPaste(!!saved?.auto_paste);
-      setStreamInsert(!!saved?.stream_insert);
-      setAiRefine(saved?.ai_refine !== false);
-      if (saved?.ai_provider) setAiProvider(saved.ai_provider);
-      if (saved?.stt_provider) setSttProvider(saved.stt_provider);
-      if (typeof saved?.echo_cancellation === 'boolean') setEchoCancellation(saved.echo_cancellation);
-      if (typeof saved?.noise_suppression === 'boolean') setNoiseSuppression(saved.noise_suppression);
+      const saved = await invoke<BehaviorPrefs>('set_behavior', { patch });
+      setAutoPaste(saved.auto_paste);
+      setAiRefine(saved.ai_refine);
+      setAiProvider(saved.ai_provider);
+      setSttProvider(saved.stt_provider);
+      setEchoCancellation(saved.echo_cancellation);
+      setNoiseSuppression(saved.noise_suppression);
 
       // Autostart is persisted via separate command and also controlled by OS
       let autostartOk = true;
@@ -869,14 +743,14 @@ async function persistBehavior() {
                 <div className="text-sm">Auto-paste into focused field</div>
                 <div className="text-xs text-muted">Falls back to manual paste if blocked</div>
               </div>
-              <Switch checked={autoPaste} onCheckedChange={(v)=>{ log('🟢 Toggle autoPaste ->', v); setAutoPaste(v); }} />
+              <Switch checked={autoPaste} onCheckedChange={setAutoPaste} />
             </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm">AI refinement</div>
                 <div className="text-xs text-muted">Use the selected AI provider to refine dictation text</div>
               </div>
-              <Switch checked={aiRefine} onCheckedChange={(v)=>{ log('🟢 Toggle aiRefine ->', v); setAiRefine(v); }} />
+              <Switch checked={aiRefine} onCheckedChange={setAiRefine} />
             </div>
             <motion.button
               onClick={persistBehavior}
@@ -897,14 +771,14 @@ async function persistBehavior() {
                 <div className="text-sm">Echo cancellation</div>
                 <div className="text-xs text-muted">Enable echo control when available</div>
               </div>
-              <Switch checked={echoCancellation} onCheckedChange={(v)=>{ log('🔊 Toggle echoCancellation ->', v); setEchoCancellation(v); }} />
+              <Switch checked={echoCancellation} onCheckedChange={setEchoCancellation} />
             </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm">Noise suppression</div>
                 <div className="text-xs text-muted">Enable noise filtering when available</div>
               </div>
-              <Switch checked={noiseSuppression} onCheckedChange={(v)=>{ log('🔊 Toggle noiseSuppression ->', v); setNoiseSuppression(v); }} />
+              <Switch checked={noiseSuppression} onCheckedChange={setNoiseSuppression} />
             </div>
           </div>
               </section>
@@ -942,7 +816,7 @@ async function persistBehavior() {
                             key={opt}
                             type="button"
                             className={`w-full text-left px-3 py-2 text-sm hover:bg-neutral-800 ${aiProvider===opt?'text-accent':'text-[var(--fg)]'}`}
-                            onMouseDown={() => { switchProvider(opt as any); setAiMenuOpen(false); }}
+                            onMouseDown={() => { switchProvider(opt as 'openrouter' | 'megallm'); setAiMenuOpen(false); }}
                           >
                             {opt === 'openrouter' ? 'OpenRouter' : 'MegaLLM'}
                           </button>
@@ -977,7 +851,7 @@ async function persistBehavior() {
                             key={opt}
                             type="button"
                             className={`w-full text-left px-3 py-2 text-sm hover:bg-neutral-800 ${sttProvider===opt?'text-accent':'text-[var(--fg)]'}`}
-                            onMouseDown={() => { switchSttProvider(opt as any); setSttMenuOpen(false); }}
+                            onMouseDown={() => { switchSttProvider(opt as 'deepgram' | 'elevenlabs'); setSttMenuOpen(false); }}
                           >
                             {opt === 'deepgram' ? 'Deepgram' : 'ElevenLabs'}
                           </button>
@@ -999,7 +873,7 @@ async function persistBehavior() {
                     value={openrouterKey}
                     onChange={e=>setOpenrouterKey(e.target.value)}
                     className={`flex-1 px-3 py-2 bg-neutral-900 rounded border ${valid.or || openrouterKey===''? 'border-neutral-700' : 'border-red-500'}`}
-                    placeholder="sk-or-v1-********************************"
+                    placeholder={keysPresent.openrouter ? "Saved. Type to replace" : "Paste API key"}
                     aria-invalid={!valid.or && openrouterKey!==''}
                   />
                   <button aria-label="Save OpenRouter key" title="Save OpenRouter key" onClick={saveKeys} className="px-3 py-2 bg-accent text-black rounded hover:brightness-95 active:brightness-90 transition disabled:opacity-50" disabled={!valid.or && openrouterKey!==''}>{testing==='or'?<Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}</button>
@@ -1017,7 +891,7 @@ async function persistBehavior() {
                     value={megallmKey}
                     onChange={e=>setMegallmKey(e.target.value)}
                     className={`flex-1 px-3 py-2 bg-neutral-900 rounded border ${valid.mg || megallmKey===''? 'border-neutral-700' : 'border-red-500'}`}
-                    placeholder="sk-********************************"
+                    placeholder={keysPresent.megallm ? "Saved. Type to replace" : "Paste API key"}
                     aria-invalid={!valid.mg && megallmKey!==''}
                   />
                   <button aria-label="Save MegaLLM key" title="Save MegaLLM key" onClick={saveKeys} className="px-3 py-2 bg-accent text-black rounded hover:brightness-95 active:brightness-90 transition disabled:opacity-50" disabled={!valid.mg && megallmKey!==''}>{testingMega?<Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}</button>
@@ -1032,7 +906,7 @@ async function persistBehavior() {
               <div>
                 <label htmlFor="deepgram" className="block text-xs text-muted">Deepgram API key</label>
                 <div className="flex gap-2 mt-1 items-center">
-                  <input id="deepgram" type="password" value={deepgramKey} onChange={e=>setDeepgramKey(e.target.value)} className={`flex-1 px-3 py-2 bg-neutral-900 rounded border ${valid.dg || deepgramKey===''? 'border-neutral-700' : 'border-red-500'}`} placeholder="dg-********************************" aria-invalid={!valid.dg && deepgramKey!==''} />
+                  <input id="deepgram" type="password" value={deepgramKey} onChange={e=>setDeepgramKey(e.target.value)} className={`flex-1 px-3 py-2 bg-neutral-900 rounded border ${valid.dg || deepgramKey===''? 'border-neutral-700' : 'border-red-500'}`} placeholder={keysPresent.deepgram ? "Saved. Type to replace" : "Paste API key"} aria-invalid={!valid.dg && deepgramKey!==''} />
                   <button aria-label="Save Deepgram key" title="Save Deepgram key" onClick={saveKeys} className="px-3 py-2 bg-accent text-black rounded hover:brightness-95 active:brightness-90 transition disabled:opacity-50" disabled={!valid.dg && deepgramKey!==''}><KeyRound size={16}/></button>
                   <button aria-label="Test Deepgram key" title="Test Deepgram key" onClick={testDeepgram} className="px-3 py-2 bg-neutral-800 rounded border border-neutral-700 hover:bg-neutral-700 transition disabled:opacity-50" disabled={testing==='dg' || (!valid.dg && deepgramKey!=='')}>{testing==='dg'?'Testing...':'Test'}</button>
                 </div>
@@ -1042,7 +916,7 @@ async function persistBehavior() {
               <div>
                 <label htmlFor="elevenlabs" className="block text-xs text-muted">ElevenLabs API key</label>
                 <div className="flex gap-2 mt-1 items-center">
-                  <input id="elevenlabs" type="password" value={elevenlabsKey} onChange={e=>setElevenlabsKey(e.target.value)} className={`flex-1 px-3 py-2 bg-neutral-900 rounded border ${valid.el || elevenlabsKey===''? 'border-neutral-700' : 'border-red-500'}`} placeholder="elevenlabs key" aria-invalid={!valid.el && elevenlabsKey!==''} />
+                  <input id="elevenlabs" type="password" value={elevenlabsKey} onChange={e=>setElevenlabsKey(e.target.value)} className={`flex-1 px-3 py-2 bg-neutral-900 rounded border ${valid.el || elevenlabsKey===''? 'border-neutral-700' : 'border-red-500'}`} placeholder={keysPresent.elevenlabs ? "Saved. Type to replace" : "Paste API key"} aria-invalid={!valid.el && elevenlabsKey!==''} />
                   <button aria-label="Save ElevenLabs key" title="Save ElevenLabs key" onClick={saveKeys} className="px-3 py-2 bg-accent text-black rounded hover:brightness-95 active:brightness-90 transition disabled:opacity-50" disabled={!valid.el && elevenlabsKey!==''}><KeyRound size={16}/></button>
                   <button aria-label="Test ElevenLabs key" title="Test ElevenLabs key" onClick={testElevenLabs} className="px-3 py-2 bg-neutral-800 rounded border border-neutral-700 hover:bg-neutral-700 transition disabled:opacity-50" disabled={testing==='el' || (!valid.el && elevenlabsKey!=='')}>{testing==='el'?'Testing...':'Test'}</button>
                 </div>
@@ -1110,20 +984,7 @@ async function persistBehavior() {
                 Save Provider Prefs
               </motion.button>
             </div>
-            <div className="text-xs text-muted">Keys stored securely (Stronghold). We never upload audio.</div>
-            {((import.meta as any).env?.DEV) && (
-              <button
-                type="button"
-                onClick={async () => {
-                  await invoke('export_test_keys');
-                  setToast({ text: 'Keys exported to terminal - check console', kind: 'ok' });
-                  setTimeout(() => setToast(null), 3000);
-                }}
-                className="w-full mt-2 px-3 py-2 bg-neutral-800 rounded border border-neutral-700 hover:bg-neutral-700 transition text-xs"
-              >
-                🧪 Export Keys for Testing (check terminal)
-              </button>
-            )}
+            <div className="text-xs text-muted">Audio is streamed to the selected speech provider while you dictate.</div>
           </div>
         </section>
       </div>
