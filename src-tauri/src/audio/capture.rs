@@ -90,6 +90,13 @@ pub struct CaptureStats {
   pub echo_reference: bool,
 }
 
+impl CaptureStats {
+  /// Captured audio length (10 ms frames).
+  pub fn duration_ms(&self) -> i64 {
+    self.frames as i64 * 10
+  }
+}
+
 pub struct Capture {
   stop: Arc<AtomicBool>,
   stop_device: Option<std_mpsc::Sender<()>>,

@@ -24,6 +24,7 @@ fn main() {
     "elevenlabs_pool_refresh",
     "elevenlabs_pool_watch",
     "audio_devices",
+    "history_recent",
   ];
   tauri_build::try_build(
     tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(commands)),

@@ -2,6 +2,7 @@ pub mod app_host;
 pub mod audio;
 pub mod commands;
 pub mod credentials;
+pub mod db;
 pub mod engine;
 pub mod flowbar;
 pub mod hotkey;
@@ -16,7 +17,7 @@ pub mod settings;
 pub mod symbols;
 pub mod transcript;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -28,10 +29,6 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt as _;
 
 use session::{Input, SessionHandle, Snapshot, Trigger};
-
-/// Most recent completed transcript, for "Paste last transcript". Moves to SQLite in Phase 3.
-#[derive(Default)]
-pub struct LastTranscript(pub Mutex<Option<String>>);
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -187,7 +184,17 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
         }
       }
       tracing::info!(version = %app.package_info().version, "Dictation HUD starting");
-      app.manage(LastTranscript::default());
+      let data_dir = app.path().app_local_data_dir().expect("app data dir");
+      let db = db::Db::open(&data_dir.join("history").join("dictation.db")).map_err(|e| {
+        tracing::error!(error = %e, "could not open history database");
+        e
+      })?;
+      match db.reconcile_interrupted() {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!(sessions = n, "reconciled sessions left in progress by a previous run"),
+        Err(e) => tracing::warn!(error = %e, "reconcile failed"),
+      }
+      app.manage(db);
       app.manage(services::Services::init(app.handle()));
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
       app.manage(session);
@@ -234,6 +241,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       commands::elevenlabs_pool_refresh,
       commands::elevenlabs_pool_watch,
       commands::audio_devices,
+      commands::history_recent,
     ])
     .run(context)
 }

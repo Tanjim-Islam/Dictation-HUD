@@ -51,7 +51,7 @@ impl Host for TestHost {
         synthetic: Some(Arc::new(vec![1000i16; 16_000])),
       },
     };
-    let h = engine::start(&self.registry, cfg, id, session.clone(), Arc::new(|_| {}));
+    let h = engine::start(&self.registry, cfg, id, session.clone(), engine::EngineHooks::none());
     *self.engine.lock().unwrap() = Some(h);
   }
   fn finish_engine(&self, id: SessionId) {

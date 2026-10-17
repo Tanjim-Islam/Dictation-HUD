@@ -249,6 +249,12 @@
           "markdownDescription": "Enables the get_settings command without any pre-configured scope."
         },
         {
+          "description": "Enables the history_recent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-recent",
+          "markdownDescription": "Enables the history_recent command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_refine_models command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-refine-models",
@@ -379,6 +385,12 @@
           "type": "string",
           "const": "deny-get-settings",
           "markdownDescription": "Denies the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_recent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-recent",
+          "markdownDescription": "Denies the history_recent command without any pre-configured scope."
         },
         {
           "description": "Denies the list_refine_models command without any pre-configured scope.",

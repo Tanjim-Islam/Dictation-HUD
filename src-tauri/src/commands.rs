@@ -317,3 +317,13 @@ pub async fn audio_devices() -> Result<Vec<DeviceInfo>, String> {
     .await
     .map_err(|e| e.to_string())
 }
+
+/// Recent sessions, newest first. Full History UI arrives with the history phase.
+#[tauri::command]
+pub async fn history_recent(
+  db: State<'_, crate::db::Db>,
+  limit: Option<i64>,
+) -> Result<Vec<crate::db::sessions::SessionRow>, String> {
+  db.recent_sessions(limit.unwrap_or(50).clamp(1, 500))
+    .map_err(|e| e.to_string())
+}

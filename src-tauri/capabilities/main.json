@@ -37,6 +37,7 @@
     "allow-elevenlabs-pool-set-multi",
     "allow-elevenlabs-pool-refresh",
     "allow-elevenlabs-pool-watch",
-    "allow-audio-devices"
+    "allow-audio-devices",
+    "allow-history-recent"
   ]
 }

@@ -36,6 +36,18 @@ pub enum Trigger {
   System,
 }
 
+impl Trigger {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Trigger::Hotkey => "hotkey",
+      Trigger::Tray => "tray",
+      Trigger::FlowBar => "flow_bar",
+      Trigger::App => "app",
+      Trigger::System => "system",
+    }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EngineError {
@@ -49,6 +61,19 @@ pub enum EngineError {
 }
 
 impl EngineError {
+  /// Stable machine-readable code for storage.
+  pub fn code(&self) -> String {
+    match self {
+      EngineError::MissingKey => "missing_key".into(),
+      EngineError::Auth => "auth".into(),
+      EngineError::RateLimited => "rate_limited".into(),
+      EngineError::Network => "network".into(),
+      EngineError::Microphone => "microphone".into(),
+      EngineError::Provider(kind) => format!("provider:{kind}"),
+      EngineError::Lost => "engine_lost".into(),
+    }
+  }
+
   pub fn message(&self) -> String {
     match self {
       EngineError::MissingKey => "Add an API key for the speech provider".into(),
@@ -132,7 +157,11 @@ pub enum Outcome {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
   Publish,
+  /// A new session exists; persisted before any engine work.
+  Created(SessionId, Trigger),
   StartEngine(SessionId),
+  /// A final (stable) transcript segment, persisted as it arrives.
+  Segment(SessionId, String),
   FinishEngine(SessionId),
   CancelEngine(SessionId),
   StartTimer(SessionId, TimerKind),
@@ -217,7 +246,7 @@ impl Machine {
     let mut fx = Vec::new();
     match (self.state.clone(), input) {
       // Starting
-      (State::Idle | State::Error { .. }, Input::Start(_) | Input::Toggle(_)) => {
+      (State::Idle | State::Error { .. }, Input::Start(trigger) | Input::Toggle(trigger)) => {
         if self.shutdown_pending {
           return fx;
         }
@@ -227,6 +256,7 @@ impl Machine {
           id,
           phase: Phase::Preparing,
         };
+        fx.push(Effect::Created(id, trigger));
         fx.push(Effect::StartEngine(id));
         fx.push(Effect::StartTimer(id, TimerKind::Connect));
         fx.push(Effect::Publish);
@@ -318,7 +348,12 @@ impl Machine {
       ) if e == id => {
         match ev {
           EngineEvent::Interim(t) => self.transcript.interim(&t),
-          EngineEvent::Final(t) => self.transcript.finalize(&t),
+          EngineEvent::Final(t) => {
+            if !t.trim().is_empty() {
+              fx.push(Effect::Segment(id, t.trim().to_string()));
+            }
+            self.transcript.finalize(&t);
+          }
           EngineEvent::Ready => {}
           EngineEvent::Finalized => {
             if self.phase() == Phase::Finalizing {
@@ -486,6 +521,28 @@ mod tests {
       })
     );
     assert_eq!(m.phase(), Phase::Idle);
+  }
+
+  #[test]
+  fn created_is_persisted_before_engine_and_segments_follow_finals() {
+    let mut m = machine();
+    let fx = m.step(Input::Start(Trigger::Tray));
+    let created = fx
+      .iter()
+      .position(|e| *e == Effect::Created(id(1), Trigger::Tray))
+      .unwrap();
+    let engine = fx.iter().position(|e| *e == Effect::StartEngine(id(1))).unwrap();
+    assert!(created < engine);
+    let fx = m.step(Input::Engine(id(1), EngineEvent::Interim("draft".into())));
+    assert!(
+      !fx.iter().any(|e| matches!(e, Effect::Segment(..))),
+      "interims are not durable"
+    );
+    let fx = m.step(Input::Engine(id(1), EngineEvent::Final(" stable words ".into())));
+    assert!(has(&fx, &Effect::Segment(id(1), "stable words".into())));
+    assert!(m
+      .step(Input::Engine(id(1), EngineEvent::Final("   ".into())))
+      .is_empty());
   }
 
   #[test]

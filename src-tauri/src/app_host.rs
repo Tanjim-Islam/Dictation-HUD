@@ -1,24 +1,42 @@
 //! Tauri implementation of the session [`Host`].
+//!
+//! Durable writes happen here, in lifecycle order: session row on creation, segments as they
+//! finalize, transcript stages before delivery, outcome at the end. A database error is logged
+//! and never blocks dictation.
 
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::capture::CaptureConfig;
-use crate::engine::{self, EngineConfig, EngineHandle, LevelEvent};
+use crate::db::sessions::{self, NewSession, Processing};
+use crate::db::Db;
+use crate::engine::{self, EngineConfig, EngineHandle, EngineHooks, LevelEvent};
 use crate::logging::text_shape;
 use crate::services::Services;
 use crate::session::host::Host;
-use crate::session::machine::{DeliveryOutcome, Input, Outcome, Phase, Processed, SessionId, Snapshot};
+use crate::session::machine::{DeliveryOutcome, Input, Outcome, Phase, Processed, SessionId, Snapshot, Trigger};
 use crate::session::SessionHandle;
 use crate::{flowbar, paste, refine, settings, symbols};
 
 pub const SNAPSHOT_EVENT: &str = "session://snapshot";
 pub const LEVEL_EVENT: &str = "session://level";
+/// History changed (a session was created or finished).
+pub const HISTORY_EVENT: &str = "history://changed";
 
 pub struct TauriHost {
   app: AppHandle,
   engine: Mutex<Option<EngineHandle>>,
+}
+
+fn db_warn<T>(what: &str, r: rusqlite::Result<T>) -> Option<T> {
+  match r {
+    Ok(v) => Some(v),
+    Err(e) => {
+      tracing::warn!(op = what, error = %e, "database write failed");
+      None
+    }
+  }
 }
 
 impl TauriHost {
@@ -35,6 +53,10 @@ impl TauriHost {
       f(h);
     }
   }
+
+  fn db(&self) -> tauri::State<'_, Db> {
+    self.app.state::<Db>()
+  }
 }
 
 impl Host for TauriHost {
@@ -45,6 +67,35 @@ impl Host for TauriHost {
       flowbar::show(&self.app);
     }
     let _ = self.app.emit(SNAPSHOT_EVENT, snapshot);
+  }
+
+  fn created(&self, id: SessionId, trigger: Trigger) {
+    let s = settings::load(&self.app);
+    let sid = id.to_string();
+    let db = self.db();
+    db_warn(
+      "create_session",
+      db.create_session(&NewSession {
+        id: &sid,
+        trigger: trigger.as_str(),
+        provider: &s.stt_provider,
+        model: s.stt_model(),
+        language: &s.language,
+        retry_of: None,
+      }),
+    );
+    db_warn(
+      "start_attempt",
+      db.start_attempt(&sid, "live", &s.stt_provider, s.stt_model(), &s.language),
+    );
+    let _ = self.app.emit(HISTORY_EVENT, ());
+  }
+
+  fn segment(&self, id: SessionId, text: &str) {
+    let db = self.db();
+    if let Some(Some(attempt)) = db_warn("current_attempt", db.current_attempt(&id.to_string())) {
+      db_warn("add_segment", db.add_segment(attempt, text));
+    }
   }
 
   fn start_engine(&self, id: SessionId, session: &SessionHandle) {
@@ -61,12 +112,19 @@ impl Host for TauriHost {
         synthetic: synthetic_source(),
       },
     };
-    let app = self.app.clone();
-    let levels: engine::LevelEmitter = Arc::new(move |ev: LevelEvent| {
-      let _ = app.emit_to("hud", LEVEL_EVENT, ev);
-    });
+    let level_app = self.app.clone();
+    let end_app = self.app.clone();
+    let hooks = EngineHooks {
+      levels: Arc::new(move |ev: LevelEvent| {
+        let _ = level_app.emit_to("hud", LEVEL_EVENT, ev);
+      }),
+      on_capture_end: Arc::new(move |sid, stats| {
+        let db = end_app.state::<Db>();
+        db_warn("set_duration", db.set_duration(&sid.to_string(), stats.duration_ms()));
+      }),
+    };
     let services = self.app.state::<Services>();
-    let handle = engine::start(&services.registry, cfg, id, session.clone(), levels);
+    let handle = engine::start(&services.registry, cfg, id, session.clone(), hooks);
     if let Some(old) = self.engine.lock().unwrap().replace(handle) {
       old.cancel();
     }
@@ -84,7 +142,39 @@ impl Host for TauriHost {
     let app = self.app.clone();
     let session = session.clone();
     tauri::async_runtime::spawn(async move {
-      let result = process_text(&app, &transcript).await;
+      let sid = id.to_string();
+      {
+        let db = app.state::<Db>();
+        if let Some(Some(attempt)) = db_warn("current_attempt", db.current_attempt(&sid)) {
+          db_warn(
+            "finish_attempt",
+            db.finish_attempt(attempt, "ok", None, Some(&transcript)),
+          );
+        }
+      }
+      let out = process_text(&app, &transcript).await;
+      let result = match &out {
+        None => Processed::Empty,
+        Some(o) => {
+          // Persist every stage before delivery starts.
+          let db = app.state::<Db>();
+          db_warn(
+            "save_processing",
+            db.save_processing(
+              &sid,
+              &Processing {
+                raw_text: &transcript,
+                formatted_text: &o.formatted,
+                final_text: &o.final_text,
+                refine_provider: o.refine_provider.as_deref(),
+                refine_model: o.refine_model.as_deref(),
+                refine_status: o.refine_status,
+              },
+            ),
+          );
+          Processed::Text(o.final_text.clone())
+        }
+      };
       session.send(Input::Processed(id, result)).await;
     });
   }
@@ -108,11 +198,43 @@ impl Host for TauriHost {
 
   fn record(&self, id: SessionId, outcome: &Outcome, transcript: &str) {
     tracing::info!(session = %id, outcome = ?outcome, transcript = %text_shape(transcript), "session recorded");
-    if let Some(state) = self.app.try_state::<crate::LastTranscript>() {
-      if matches!(outcome, Outcome::Completed { .. }) && !transcript.trim().is_empty() {
-        *state.0.lock().unwrap() = Some(transcript.to_string());
+    let sid = id.to_string();
+    let failure;
+    let (status, failure, delivery) = match outcome {
+      Outcome::Completed { delivery } => (
+        sessions::status::COMPLETED,
+        None,
+        Some(match delivery {
+          DeliveryOutcome::Pasted => "pasted",
+          DeliveryOutcome::Copied => "copied",
+          DeliveryOutcome::Failed => "failed",
+        }),
+      ),
+      Outcome::NoSpeech => (sessions::status::NO_SPEECH, None, None),
+      Outcome::Cancelled => (sessions::status::CANCELLED, None, None),
+      Outcome::Interrupted => (sessions::status::INTERRUPTED, Some("app_closed"), None),
+      Outcome::Failed { error } => {
+        failure = error.code();
+        (sessions::status::FAILED, Some(failure.as_str()), None)
       }
+    };
+    let db = self.db();
+    if !transcript.trim().is_empty() {
+      db_warn("save_raw", db.save_raw(&sid, transcript));
     }
+    db_warn(
+      "finalize",
+      db.finalize(
+        &sid,
+        &sessions::Outcome {
+          status,
+          failure,
+          delivery,
+          duration_ms: None,
+        },
+      ),
+    );
+    let _ = self.app.emit(HISTORY_EVENT, ());
   }
 }
 
@@ -132,15 +254,31 @@ fn synthetic_source() -> Option<Arc<Vec<i16>>> {
   }
 }
 
+pub struct ProcessOutput {
+  pub formatted: String,
+  pub final_text: String,
+  pub refine_provider: Option<String>,
+  pub refine_model: Option<String>,
+  /// ok | failed | off
+  pub refine_status: &'static str,
+}
+
 /// Deterministic formatting, then optional AI refinement with deterministic fallback.
-pub async fn process_text(app: &AppHandle, transcript: &str) -> Processed {
+/// `None` means there was no text.
+pub async fn process_text(app: &AppHandle, transcript: &str) -> Option<ProcessOutput> {
   let formatted = symbols::replace_symbols(transcript);
   if formatted.trim().is_empty() {
-    return Processed::Empty;
+    return None;
   }
   let s = settings::load(app);
   if !s.ai_refine {
-    return Processed::Text(formatted);
+    return Some(ProcessOutput {
+      final_text: formatted.clone(),
+      formatted,
+      refine_provider: None,
+      refine_model: None,
+      refine_status: "off",
+    });
   }
   let p = refine::provider(&s.ai_provider);
   let model = if p.id == "megallm" {
@@ -149,8 +287,15 @@ pub async fn process_text(app: &AppHandle, transcript: &str) -> Processed {
     s.openrouter_model.clone()
   };
   let key = app.state::<Services>().refine_key(p);
-  match refine::refine(p, key, &model, &formatted).await {
-    Ok(refined) => Processed::Text(refined),
-    Err(_) => Processed::Text(refine::basic_punctuation_cleanup(&formatted)),
-  }
+  let (final_text, refine_status) = match refine::refine(p, key, &model, &formatted).await {
+    Ok(refined) => (refined, "ok"),
+    Err(_) => (refine::basic_punctuation_cleanup(&formatted), "failed"),
+  };
+  Some(ProcessOutput {
+    formatted,
+    final_text,
+    refine_provider: Some(p.id.to_string()),
+    refine_model: Some(model),
+    refine_status,
+  })
 }

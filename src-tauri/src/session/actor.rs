@@ -78,7 +78,9 @@ pub fn spawn_with<H: Host>(host: Arc<H>, mut machine: Machine) -> SessionHandle 
       for effect in effects {
         match effect {
           Effect::Publish => host.publish(&machine.snapshot()),
+          Effect::Created(id, trigger) => host.created(id, trigger),
           Effect::StartEngine(id) => host.start_engine(id, &me),
+          Effect::Segment(id, text) => host.segment(id, &text),
           Effect::FinishEngine(id) => host.finish_engine(id),
           Effect::CancelEngine(id) => host.cancel_engine(id),
           Effect::StartTimer(id, kind) => {

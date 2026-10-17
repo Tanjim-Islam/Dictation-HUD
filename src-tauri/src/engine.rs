@@ -8,7 +8,7 @@ use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::audio::capture::{Capture, CaptureConfig, CaptureOutputs};
+use crate::audio::capture::{Capture, CaptureConfig, CaptureOutputs, CaptureStats};
 use crate::audio::levels::{LevelFrame, LevelMeter};
 use crate::providers::{AudioMsg, Registry, StreamCtx, SttEvent};
 use crate::session::machine::{EngineError, EngineEvent, Input, SessionId, Trigger};
@@ -35,6 +35,25 @@ pub struct LevelEvent {
 }
 
 pub type LevelEmitter = Arc<dyn Fn(LevelEvent) + Send + Sync>;
+pub type CaptureEndHook = Arc<dyn Fn(SessionId, &CaptureStats) + Send + Sync>;
+
+/// Side channels from the engine to the host. Called off the session actor.
+#[derive(Clone)]
+pub struct EngineHooks {
+  /// Display-rate microphone levels for the HUD.
+  pub levels: LevelEmitter,
+  /// Capture stopped (finish, cancel, failure). Stats describe the captured audio.
+  pub on_capture_end: CaptureEndHook,
+}
+
+impl EngineHooks {
+  pub fn none() -> Self {
+    Self {
+      levels: Arc::new(|_| {}),
+      on_capture_end: Arc::new(|_, _| {}),
+    }
+  }
+}
 
 pub struct EngineHandle {
   pub session_id: SessionId,
@@ -59,7 +78,7 @@ pub fn start(
   cfg: EngineConfig,
   id: SessionId,
   session: SessionHandle,
-  levels_out: LevelEmitter,
+  hooks: EngineHooks,
 ) -> EngineHandle {
   let (finish_tx, finish_rx) = oneshot::channel();
   let cancel = CancellationToken::new();
@@ -69,7 +88,7 @@ pub fn start(
     cancel: cancel.clone(),
   };
   let adapter = registry.get(&cfg.provider);
-  tauri::async_runtime::spawn(run(adapter, cfg, id, session, levels_out, finish_rx, cancel));
+  tauri::async_runtime::spawn(run(adapter, cfg, id, session, hooks, finish_rx, cancel));
   handle
 }
 
@@ -82,7 +101,7 @@ async fn run(
   cfg: EngineConfig,
   id: SessionId,
   session: SessionHandle,
-  levels_out: LevelEmitter,
+  hooks: EngineHooks,
   mut finish_rx: oneshot::Receiver<()>,
   cancel: CancellationToken,
 ) {
@@ -125,7 +144,9 @@ async fn run(
     Err(_) => return report(&session, id, EngineEvent::Failed(EngineError::Microphone)).await,
   };
   if cancel.is_cancelled() {
-    let _ = tauri::async_runtime::spawn_blocking(move || capture.stop()).await;
+    if let Ok(stats) = tauri::async_runtime::spawn_blocking(move || capture.stop()).await {
+      (hooks.on_capture_end)(id, &stats);
+    }
     return;
   }
   report(&session, id, EngineEvent::Ready).await;
@@ -145,6 +166,7 @@ async fn run(
   let level_cancel = cancel.child_token();
   let pump_levels = levels.clone();
   let pump_cancel = level_cancel.clone();
+  let levels_out = hooks.levels.clone();
   tauri::async_runtime::spawn(async move {
     let mut tick = tokio::time::interval(Duration::from_millis(33));
     loop {
@@ -160,11 +182,15 @@ async fn run(
   });
 
   let mut capture = Some(capture);
+  let on_end = hooks.on_capture_end.clone();
   let stop_capture = |c: &mut Option<Capture>| {
     let c = c.take();
+    let on_end = on_end.clone();
     async move {
       if let Some(c) = c {
-        let _ = tauri::async_runtime::spawn_blocking(move || c.stop()).await;
+        if let Ok(stats) = tauri::async_runtime::spawn_blocking(move || c.stop()).await {
+          on_end(id, &stats);
+        }
       }
     }
   };
