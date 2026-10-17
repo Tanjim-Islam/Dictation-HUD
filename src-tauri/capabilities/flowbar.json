@@ -4,7 +4,7 @@
   "description": "Flow Bar: render session state and send intents only.",
   "local": true,
   "windows": [
-    "hud"
+    "flowbar"
   ],
   "permissions": [
     "core:event:allow-listen",

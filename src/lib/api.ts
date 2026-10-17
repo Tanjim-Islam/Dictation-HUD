@@ -21,6 +21,7 @@ export type Settings = {
   megallm_model: string;
   /** Days to keep recordings; 0 keeps them forever. */
   audio_retention_days: number;
+  flowbar_edge: 'bottom' | 'top' | 'left' | 'right';
 };
 
 export type SettingsPatch = Partial<Omit<Settings, 'version' | 'autostart' | 'input_device'>> & { input_device?: string };

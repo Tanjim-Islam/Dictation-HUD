@@ -38,6 +38,9 @@ pub struct Settings {
   // History
   /// Days to keep local recordings (0 = keep forever). Transcripts are always kept.
   pub audio_retention_days: u32,
+  // Flow Bar
+  /// Screen edge the Flow Bar docks to: `bottom`, `top`, `left`, or `right`.
+  pub flowbar_edge: String,
 }
 
 /// Longest finite retention offered.
@@ -64,6 +67,7 @@ impl Default for Settings {
       openrouter_model: DEFAULT_OPENROUTER_MODEL.into(),
       megallm_model: DEFAULT_MEGALLM_MODEL.into(),
       audio_retention_days: 14,
+      flowbar_edge: "bottom".into(),
     }
   }
 }
@@ -96,6 +100,9 @@ impl Settings {
       self.input_device = None;
     }
     self.audio_retention_days = self.audio_retention_days.min(MAX_RETENTION_DAYS);
+    if crate::flowbar::Edge::parse(&self.flowbar_edge).is_none() {
+      self.flowbar_edge = "bottom".into();
+    }
     self.version = SETTINGS_VERSION;
   }
 
@@ -124,6 +131,7 @@ pub struct SettingsPatch {
   pub openrouter_model: Option<String>,
   pub megallm_model: Option<String>,
   pub audio_retention_days: Option<u32>,
+  pub flowbar_edge: Option<String>,
 }
 
 pub type BehaviorPatch = SettingsPatch;
@@ -148,7 +156,8 @@ impl SettingsPatch {
       ai_provider,
       openrouter_model,
       megallm_model,
-      audio_retention_days
+      audio_retention_days,
+      flowbar_edge
     );
     f
   }
@@ -175,7 +184,8 @@ impl SettingsPatch {
       elevenlabs_model,
       language,
       openrouter_model,
-      megallm_model
+      megallm_model,
+      flowbar_edge
     );
     if let Some(v) = self.input_device {
       s.input_device = if v.is_empty() { None } else { Some(v) };
@@ -341,5 +351,18 @@ mod tests {
     }
     .apply(&mut s);
     assert_eq!(s.audio_retention_days, 0, "0 keeps recordings forever");
+  }
+
+  #[test]
+  fn flowbar_edge_is_validated() {
+    assert_eq!(Settings::default().flowbar_edge, "bottom");
+    assert_eq!(
+      Settings::from_stored(serde_json::json!({ "flowbar_edge": "left" })).flowbar_edge,
+      "left"
+    );
+    assert_eq!(
+      Settings::from_stored(serde_json::json!({ "flowbar_edge": "middle" })).flowbar_edge,
+      "bottom"
+    );
   }
 }

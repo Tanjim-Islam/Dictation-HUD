@@ -34,11 +34,11 @@
         "shadow": true
       },
       {
-        "label": "hud",
-        "title": "HUD",
-        "url": "#/hud",
-        "width": 600,
-        "height": 120,
+        "label": "flowbar",
+        "title": "Flow Bar",
+        "url": "#/flowbar",
+        "width": 100,
+        "height": 28,
         "center": false,
         "x": 0,
         "y": 0,

@@ -285,12 +285,6 @@
           "markdownDescription": "Enables the history_list command without any pre-configured scope."
         },
         {
-          "description": "Enables the history_recent command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-history-recent",
-          "markdownDescription": "Enables the history_recent command without any pre-configured scope."
-        },
-        {
           "description": "Enables the history_recover command without any pre-configured scope.",
           "type": "string",
           "const": "allow-history-recover",
@@ -487,12 +481,6 @@
           "type": "string",
           "const": "deny-history-list",
           "markdownDescription": "Denies the history_list command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the history_recent command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-history-recent",
-          "markdownDescription": "Denies the history_recent command without any pre-configured scope."
         },
         {
           "description": "Denies the history_recover command without any pre-configured scope.",

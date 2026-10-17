@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use windows::core::PWSTR;
-use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE, HWND};
+use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE, HWND, RECT};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::Threading::{
   AttachThreadInput, GetCurrentProcess, GetCurrentProcessId, GetCurrentThreadId, OpenProcess, OpenProcessToken,
@@ -14,8 +14,8 @@ use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
   BringWindowToTop, DispatchMessageW, GetAncestor, GetClassNameW, GetForegroundWindow, GetGUIThreadInfo, GetMessageW,
-  GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SetForegroundWindow, ShowWindow, TranslateMessage,
-  EVENT_SYSTEM_FOREGROUND, GA_ROOT, GUITHREADINFO, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT,
+  GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, SetForegroundWindow, ShowWindow,
+  TranslateMessage, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GUITHREADINFO, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT,
 };
 
 use super::{Foreground, Target, TargetKind, Validation};
@@ -172,6 +172,18 @@ pub fn capture() -> Option<Target> {
 pub fn last_app_target() -> Option<Target> {
   let t = LAST_APP.lock().unwrap().clone()?;
   (validate(&t) == Validation::Valid).then_some(t)
+}
+
+/// Center of a window in physical screen coordinates (for picking its monitor).
+pub fn window_center(hwnd_value: isize) -> Option<(i32, i32)> {
+  let h = hwnd(hwnd_value);
+  let mut r = RECT::default();
+  unsafe {
+    if !IsWindow(h).as_bool() || GetWindowRect(h, &mut r).is_err() {
+      return None;
+    }
+  }
+  Some(((r.left + r.right) / 2, (r.top + r.bottom) / 2))
 }
 
 pub fn validate(t: &Target) -> Validation {

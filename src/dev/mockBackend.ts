@@ -19,6 +19,7 @@ const settings: Settings = {
   openrouter_model: 'dots-studio/dots-3-note-preview:free',
   megallm_model: 'gpt-4o-mini',
   audio_retention_days: 14,
+  flowbar_edge: 'bottom',
 };
 
 let pool: PoolView = {

@@ -92,7 +92,7 @@ pub enum Foreground {
 
 #[cfg(windows)]
 pub use self::windows::{
-  activate, capture, foreground_relative_to, last_app_target, start_foreground_tracker, validate,
+  activate, capture, foreground_relative_to, last_app_target, start_foreground_tracker, validate, window_center,
 };
 
 #[cfg(not(windows))]
@@ -114,6 +114,9 @@ mod stubs {
     false
   }
   pub fn start_foreground_tracker() {}
+  pub fn window_center(_: isize) -> Option<(i32, i32)> {
+    None
+  }
 }
 
 #[cfg(not(windows))]

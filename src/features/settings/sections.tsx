@@ -41,6 +41,23 @@ export function GeneralSection() {
           description="Insert the transcript into the app you were using. When off, it is only copied to the clipboard."
           control={<Switch aria-label="Paste automatically" checked={settings.auto_paste} onCheckedChange={(v) => update({ auto_paste: v })} />}
         />
+        <Row
+          title="Flow Bar position"
+          description="Where the Flow Bar appears while you dictate, on the screen of the app you are using."
+          control={
+            <Select value={settings.flowbar_edge} onValueChange={(v) => update({ flowbar_edge: v as typeof settings.flowbar_edge })}>
+              <SelectTrigger className="w-[150px]" aria-label="Flow Bar position">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bottom">Bottom</SelectItem>
+                <SelectItem value="top">Top</SelectItem>
+                <SelectItem value="left">Left</SelectItem>
+                <SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          }
+        />
       </Group>
       <GroupLabel>App</GroupLabel>
       <Group>

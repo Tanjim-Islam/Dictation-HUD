@@ -19,7 +19,7 @@ use crate::engine::{self, EngineConfig, EngineHandle, EngineHooks, LevelEvent};
 use crate::logging::text_shape;
 use crate::services::Services;
 use crate::session::host::Host;
-use crate::session::machine::{DeliveryOutcome, Input, Outcome, Phase, Processed, SessionId, Snapshot, Trigger};
+use crate::session::machine::{DeliveryOutcome, Input, Outcome, Processed, SessionId, Snapshot, Trigger};
 use crate::session::SessionHandle;
 use crate::target::{self, Target};
 use crate::{flowbar, refine, settings, symbols};
@@ -97,11 +97,11 @@ impl TauriHost {
 
 impl Host for TauriHost {
   fn publish(&self, snapshot: &Snapshot) {
-    if snapshot.phase == Phase::Idle {
-      flowbar::hide(&self.app);
-    } else {
-      flowbar::show(&self.app);
-    }
+    let anchor = snapshot.session_id.as_deref().and_then(|sid| {
+      let id = uuid::Uuid::parse_str(sid).ok()?;
+      self.targets.lock().unwrap().get(&id).cloned().flatten().map(|t| t.hwnd)
+    });
+    flowbar::present(&self.app, snapshot.phase, anchor, snapshot.error.as_deref());
     let _ = self.app.emit(SNAPSHOT_EVENT, snapshot);
   }
 
@@ -165,7 +165,7 @@ impl Host for TauriHost {
     let sink_recorders = self.recorders.clone();
     let hooks = EngineHooks {
       levels: Arc::new(move |ev: LevelEvent| {
-        let _ = level_app.emit_to("hud", LEVEL_EVENT, ev);
+        let _ = level_app.emit_to(flowbar::LABEL, LEVEL_EVENT, ev);
       }),
       on_capture_end: Arc::new(move |sid, stats| {
         let db = end_app.state::<Db>();
