@@ -3,11 +3,11 @@ pub mod audio;
 pub mod commands;
 pub mod credentials;
 pub mod db;
+pub mod delivery;
 pub mod engine;
 pub mod flowbar;
 pub mod hotkey;
 pub mod logging;
-pub mod paste;
 pub mod prompt;
 pub mod providers;
 pub mod refine;
@@ -15,6 +15,7 @@ pub mod services;
 pub mod session;
 pub mod settings;
 pub mod symbols;
+pub mod target;
 pub mod transcript;
 
 use std::sync::Arc;
@@ -211,6 +212,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
         });
       }
       app.manage(services::Services::init(app.handle()));
+      app.manage(app_host::CopyReasons::default());
+      target::start_foreground_tracker();
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
       app.manage(session);
       // Launched at login: stay in the tray. Otherwise open the main window.

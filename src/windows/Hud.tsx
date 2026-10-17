@@ -34,6 +34,20 @@ function LevelBars({ sessionId }: { sessionId: string | null }) {
 
 export function Hud() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot>({ session_id: null, phase: 'idle', error: null });
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    const un = listen<string>('session://notice', (e) => {
+      setNotice(e.payload);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setNotice(null), 3000);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      un.then((f) => f());
+    };
+  }, []);
 
   useEffect(() => {
     const un = onSnapshot(setSnapshot);
@@ -76,6 +90,20 @@ export function Hud() {
               <div className="size-[10px] rounded-sm bg-[#f2f1ea]" />
             </motion.button>
           </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {phase === 'idle' && notice && (
+          <motion.div
+            key="notice"
+            initial={{ y: 8, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 8, opacity: 0 }}
+            className="fixed bottom-[30px] left-1/2 max-w-[560px] -translate-x-1/2 truncate rounded-full bg-[#0f0f0f]/95 px-3.5 py-1.5 text-xs text-white/90 shadow-lg"
+            role="status"
+          >
+            {notice}
+          </motion.div>
         )}
       </AnimatePresence>
       <AnimatePresence>

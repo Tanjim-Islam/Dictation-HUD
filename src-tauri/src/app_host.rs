@@ -14,13 +14,15 @@ use crate::audio::recording::RecordingWriter;
 use crate::audio::store::RecordingsDir;
 use crate::db::sessions::{self, NewSession, Processing};
 use crate::db::Db;
+use crate::delivery::{self, CopyReason, Delivered};
 use crate::engine::{self, EngineConfig, EngineHandle, EngineHooks, LevelEvent};
 use crate::logging::text_shape;
 use crate::services::Services;
 use crate::session::host::Host;
 use crate::session::machine::{DeliveryOutcome, Input, Outcome, Phase, Processed, SessionId, Snapshot, Trigger};
 use crate::session::SessionHandle;
-use crate::{flowbar, paste, refine, settings, symbols};
+use crate::target::{self, Target};
+use crate::{flowbar, refine, settings, symbols};
 
 pub const SNAPSHOT_EVENT: &str = "session://snapshot";
 pub const LEVEL_EVENT: &str = "session://level";
@@ -34,7 +36,14 @@ pub struct TauriHost {
   engine: Mutex<Option<EngineHandle>>,
   /// Open local recordings by session (normally zero or one).
   recorders: Recorders,
+  /// Where each session's text is meant to go, captured at start.
+  targets: Mutex<HashMap<SessionId, Option<Target>>>,
 }
+
+/// Why delivery copied instead of pasting, until the outcome is recorded (managed state, so
+/// the blocking delivery task can write it).
+#[derive(Default)]
+pub struct CopyReasons(pub Mutex<HashMap<SessionId, CopyReason>>);
 
 /// Closes a session's recording (if any) and encodes it off the async runtime.
 fn close_recording(app: &AppHandle, recorders: &Recorders, id: SessionId) {
@@ -70,6 +79,7 @@ impl TauriHost {
       app,
       engine: Mutex::new(None),
       recorders: Arc::new(Mutex::new(HashMap::new())),
+      targets: Mutex::new(HashMap::new()),
     }
   }
 
@@ -114,6 +124,16 @@ impl Host for TauriHost {
       "start_attempt",
       db.start_attempt(&sid, "live", &s.stt_provider, s.stt_model(), &s.language),
     );
+    // Capture the destination before anything else can take focus.
+    let target = target::capture();
+    match &target {
+      Some(t) => {
+        tracing::info!(session = %id, process = %t.process, kind = ?t.kind, elevated = t.elevated_mismatch, "target captured");
+        db_warn("set_target", db.set_target(&sid, &t.app_label(), &t.title, &t.process));
+      }
+      None => tracing::info!(session = %id, "no target window"),
+    }
+    self.targets.lock().unwrap().insert(id, target);
     let _ = self.app.emit(HISTORY_EVENT, ());
   }
 
@@ -235,13 +255,29 @@ impl Host for TauriHost {
   fn deliver(&self, id: SessionId, text: String, session: &SessionHandle) {
     let app = self.app.clone();
     let session = session.clone();
+    let target = self.targets.lock().unwrap().get(&id).cloned().flatten();
+    let auto_paste = settings::load(&app).auto_paste;
+    let reasons_app = self.app.clone();
     tauri::async_runtime::spawn(async move {
-      let auto_paste = settings::load(&app).auto_paste;
-      let outcome = match paste::copy_and_paste(&app, &text, auto_paste).await {
-        Ok(true) => DeliveryOutcome::Pasted,
-        Ok(false) => DeliveryOutcome::Copied,
-        Err(e) => {
-          tracing::warn!(error = %e, "delivery failed");
+      let result = tauri::async_runtime::spawn_blocking(move || {
+        delivery::deliver(&reasons_app, &text, target.as_ref(), auto_paste)
+      })
+      .await
+      .unwrap_or(Delivered::Failed);
+      let outcome = match &result {
+        Delivered::Pasted => DeliveryOutcome::Pasted,
+        Delivered::Copied(reason) => {
+          tracing::info!(session = %id, reason = reason.code(), "copied instead of pasting");
+          if let Some(state) = app.try_state::<CopyReasons>() {
+            state.0.lock().unwrap().insert(id, *reason);
+          }
+          if let Some(msg) = reason.notice() {
+            flowbar::notice(&app, msg);
+          }
+          DeliveryOutcome::Copied
+        }
+        Delivered::Failed => {
+          flowbar::notice(&app, "Could not copy or paste the text. It is saved in History.");
           DeliveryOutcome::Failed
         }
       };
@@ -273,6 +309,11 @@ impl Host for TauriHost {
     };
     // Covers sessions whose capture never stopped normally (start failure, shutdown).
     close_recording(&self.app, &self.recorders, id);
+    self.targets.lock().unwrap().remove(&id);
+    let reason = self
+      .app
+      .try_state::<CopyReasons>()
+      .and_then(|r| r.0.lock().unwrap().remove(&id));
     let db = self.db();
     if !transcript.trim().is_empty() {
       db_warn("save_raw", db.save_raw(&sid, transcript));
@@ -285,6 +326,7 @@ impl Host for TauriHost {
           status,
           failure,
           delivery,
+          delivery_reason: reason.map(CopyReason::code),
           duration_ms: None,
         },
       ),

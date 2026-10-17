@@ -78,6 +78,10 @@ const MIGRATIONS: &[&str] = &[
   );
   CREATE INDEX audio_state ON audio(state);
   "#,
+  // v3: why delivery copied instead of pasting.
+  r#"
+  ALTER TABLE sessions ADD COLUMN delivery_reason TEXT;
+  "#,
 ];
 
 pub struct Db {

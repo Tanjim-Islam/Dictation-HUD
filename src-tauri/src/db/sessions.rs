@@ -45,6 +45,7 @@ pub struct Outcome<'a> {
   pub status: &'a str,
   pub failure: Option<&'a str>,
   pub delivery: Option<&'a str>,
+  pub delivery_reason: Option<&'a str>,
   pub duration_ms: Option<i64>,
 }
 
@@ -64,6 +65,7 @@ pub struct SessionRow {
   pub final_text: Option<String>,
   pub refine_status: Option<String>,
   pub delivery_status: Option<String>,
+  pub delivery_reason: Option<String>,
   pub target_app: Option<String>,
   pub duration_ms: Option<i64>,
   pub word_count: Option<i64>,
@@ -71,7 +73,7 @@ pub struct SessionRow {
 }
 
 const SESSION_COLS: &str = "id, created_at, ended_at, trigger, status, failure, provider, model, language, raw_text, \
-   formatted_text, final_text, refine_status, delivery_status, target_app, duration_ms, word_count, retry_of";
+   formatted_text, final_text, refine_status, delivery_status, target_app, duration_ms, word_count, retry_of, delivery_reason";
 
 fn map_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
   Ok(SessionRow {
@@ -93,6 +95,7 @@ fn map_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
     duration_ms: r.get(15)?,
     word_count: r.get(16)?,
     retry_of: r.get(17)?,
+    delivery_reason: r.get(18)?,
   })
 }
 
@@ -199,6 +202,14 @@ impl Db {
     Ok(())
   }
 
+  pub fn set_target(&self, session_id: &str, app: &str, title: &str, process: &str) -> rusqlite::Result<()> {
+    self.conn().execute(
+      "UPDATE sessions SET target_app = ?2, target_title = ?3, target_process = ?4 WHERE id = ?1",
+      params![session_id, app, title, process],
+    )?;
+    Ok(())
+  }
+
   pub fn set_duration(&self, session_id: &str, duration_ms: i64) -> rusqlite::Result<()> {
     self.conn().execute(
       "UPDATE sessions SET duration_ms = ?2 WHERE id = ?1",
@@ -220,9 +231,17 @@ impl Db {
     let conn = self.conn();
     conn.execute(
       "UPDATE sessions SET status = ?2, failure = ?3, delivery_status = COALESCE(?4, delivery_status),
-         duration_ms = COALESCE(?5, duration_ms), ended_at = ?6
+         duration_ms = COALESCE(?5, duration_ms), ended_at = ?6, delivery_reason = COALESCE(?7, delivery_reason)
        WHERE id = ?1",
-      params![session_id, o.status, o.failure, o.delivery, o.duration_ms, now_ms()],
+      params![
+        session_id,
+        o.status,
+        o.failure,
+        o.delivery,
+        o.duration_ms,
+        now_ms(),
+        o.delivery_reason
+      ],
     )?;
     // Close any attempt still running (cancel, failure, shutdown).
     let attempt_status = match o.status {
@@ -342,6 +361,7 @@ mod tests {
         status: status::COMPLETED,
         failure: None,
         delivery: Some("pasted"),
+        delivery_reason: None,
         duration_ms: Some(2_500),
       },
     )
@@ -367,6 +387,7 @@ mod tests {
         status: status::CANCELLED,
         failure: None,
         delivery: None,
+        delivery_reason: None,
         duration_ms: None,
       },
     )
@@ -400,6 +421,7 @@ mod tests {
           status: status::COMPLETED,
           failure: None,
           delivery: Some("pasted"),
+          delivery_reason: None,
           duration_ms: None,
         },
       )

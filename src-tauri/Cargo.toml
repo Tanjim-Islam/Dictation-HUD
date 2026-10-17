@@ -28,8 +28,6 @@ tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
-# Native input helper for the paste keystroke
-enigo = { version = "0.2.1", optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
@@ -46,9 +44,16 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 opus = "0.4"
 ogg = "0.9"
 
-[features]
-default = ["native-input"]
-native-input = ["enigo"]
-
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Accessibility",
+  "Win32_System_Threading",
+  "Win32_System_Com",
+  "Win32_System_Variant",
+  "Win32_System_Ole",
+  "Win32_Security",
+] }
