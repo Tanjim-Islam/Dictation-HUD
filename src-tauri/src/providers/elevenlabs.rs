@@ -329,7 +329,7 @@ async fn attempt(base: &str, lease: &Lease, ctx: &mut StreamCtx, s: &mut Shared)
   }
   if !s.connected_once {
     s.connected_once = true;
-    tracing::info!(provider = "elevenlabs", ms = started.elapsed().as_millis() as u64, language = %ctx.options.language, "connected");
+    tracing::info!(provider = "elevenlabs", ms = started.elapsed().as_millis() as u64, language = %ctx.options.language, keyterms = ctx.options.keyterms.len(), "connected");
     ctx.emit(SttEvent::Connected).await;
   }
 

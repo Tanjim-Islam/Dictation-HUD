@@ -41,6 +41,9 @@ pub struct Settings {
   // Flow Bar
   /// Screen edge the Flow Bar docks to: `bottom`, `top`, `left`, or `right`.
   pub flowbar_edge: String,
+  // Formatting
+  /// Safe spacing, "i" to "I", and capitals after spoken sentence commands.
+  pub smart_formatting: bool,
 }
 
 /// Longest finite retention offered.
@@ -68,6 +71,7 @@ impl Default for Settings {
       megallm_model: DEFAULT_MEGALLM_MODEL.into(),
       audio_retention_days: 14,
       flowbar_edge: "bottom".into(),
+      smart_formatting: true,
     }
   }
 }
@@ -132,6 +136,7 @@ pub struct SettingsPatch {
   pub megallm_model: Option<String>,
   pub audio_retention_days: Option<u32>,
   pub flowbar_edge: Option<String>,
+  pub smart_formatting: Option<bool>,
 }
 
 pub type BehaviorPatch = SettingsPatch;
@@ -157,7 +162,8 @@ impl SettingsPatch {
       openrouter_model,
       megallm_model,
       audio_retention_days,
-      flowbar_edge
+      flowbar_edge,
+      smart_formatting
     );
     f
   }
@@ -171,7 +177,8 @@ impl SettingsPatch {
       echo_cancellation,
       noise_suppression,
       ai_refine,
-      audio_retention_days
+      audio_retention_days,
+      smart_formatting
     );
     if let Some(v) = self.stt_provider {
       s.stt_provider = v.to_lowercase();

@@ -35,6 +35,16 @@ fn main() {
     "history_show_export",
     "history_delete",
     "history_storage",
+    "dictionary_list",
+    "dictionary_add",
+    "dictionary_update",
+    "dictionary_delete",
+    "dictionary_accept",
+    "dictionary_import",
+    "snippets_list",
+    "snippets_add",
+    "snippets_update",
+    "snippets_delete",
   ];
   tauri_build::try_build(
     tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(commands)),

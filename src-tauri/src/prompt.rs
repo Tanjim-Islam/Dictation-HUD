@@ -322,3 +322,46 @@ mod tests {
     assert_eq!(sanitize_output("Hello, world!"), "Hello, world!");
   }
 }
+
+/// Most dictionary terms sent with one refinement request.
+const MAX_VOCABULARY_HINTS: usize = 100;
+
+/// The system prompt plus, when needed, rules for snippet placeholders and the user's
+/// preferred spellings.
+pub fn system_prompt_with(vocabulary: &[String], placeholders: bool) -> String {
+  let mut p = get_system_prompt().to_string();
+  if placeholders {
+    p.push_str(
+      "\n\n---\n\n# PLACEHOLDERS\n\nTokens like \u{27E6}1\u{27E7} stand for text that is inserted later. \
+       Copy every such token exactly once, unchanged, in the same position. Never translate, explain, or remove them.",
+    );
+  }
+  let terms: Vec<&str> = vocabulary
+    .iter()
+    .map(String::as_str)
+    .filter(|t| !t.trim().is_empty())
+    .take(MAX_VOCABULARY_HINTS)
+    .collect();
+  if !terms.is_empty() {
+    p.push_str("\n\n---\n\n# PREFERRED SPELLINGS\n\nWhen these words or names appear, spell them exactly like this: ");
+    p.push_str(&terms.join(", "));
+    p.push('.');
+  }
+  p
+}
+
+#[cfg(test)]
+mod vocabulary_tests {
+  use super::*;
+
+  #[test]
+  fn adds_sections_only_when_needed() {
+    let base = system_prompt_with(&[], false);
+    assert_eq!(base, get_system_prompt());
+    let p = system_prompt_with(&["WACV".into(), "Tanjim Riju".into()], true);
+    assert!(p.contains("PLACEHOLDERS"));
+    assert!(p.contains("WACV, Tanjim Riju."));
+    let many: Vec<String> = (0..500).map(|i| format!("term{i}")).collect();
+    assert!(!system_prompt_with(&many, false).contains("term100,"));
+  }
+}

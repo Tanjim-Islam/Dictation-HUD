@@ -48,6 +48,16 @@
     "allow-history-export-wav",
     "allow-history-show-export",
     "allow-history-delete",
-    "allow-history-storage"
+    "allow-history-storage",
+    "allow-dictionary-list",
+    "allow-dictionary-add",
+    "allow-dictionary-update",
+    "allow-dictionary-delete",
+    "allow-dictionary-accept",
+    "allow-dictionary-import",
+    "allow-snippets-list",
+    "allow-snippets-add",
+    "allow-snippets-update",
+    "allow-snippets-delete"
   ]
 }

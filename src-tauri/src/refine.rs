@@ -76,23 +76,6 @@ pub fn validate_refined(refined: &str, input: &str) -> Result<String, RefineErro
   Ok(sanitized)
 }
 
-/// Basic deterministic cleanup used when AI refinement is off or fails.
-pub fn basic_punctuation_cleanup(text: &str) -> String {
-  let mut result = text.trim().to_string();
-  if let Some(first) = result.chars().next() {
-    if first.is_lowercase() {
-      let upper: String = first.to_uppercase().collect();
-      result = upper + &result[first.len_utf8()..];
-    }
-  }
-  if let Some(last) = result.chars().last() {
-    if !matches!(last, '.' | '!' | '?' | ',' | ';' | ':' | '।') {
-      result.push('.');
-    }
-  }
-  result
-}
-
 /// OpenAI-compatible chat completion providers used for refinement.
 #[derive(Debug, Clone, Copy)]
 pub struct RefineProvider {
@@ -129,22 +112,26 @@ pub fn provider(id: &str) -> &'static RefineProvider {
   PROVIDERS.iter().find(|p| p.id == id).unwrap_or(&PROVIDERS[0])
 }
 
-async fn call_chat(
-  p: &RefineProvider,
-  key: &str,
-  model: &str,
-  text: &str,
-  timeout: Duration,
-) -> Result<String, RefineError> {
+/// One refinement call.
+pub struct Request<'a> {
+  /// Formatted transcript; may contain snippet placeholders.
+  pub text: &'a str,
+  /// Preferred spellings from the user's dictionary.
+  pub vocabulary: &'a [String],
+  pub timeout: Duration,
+}
+
+async fn call_chat(p: &RefineProvider, key: &str, model: &str, req: &Request<'_>) -> Result<String, RefineError> {
+  let has_placeholders = req.text.contains('\u{27E6}');
   let body = serde_json::json!({
     "model": model,
     "messages": [
-      {"role": "system", "content": prompt::get_system_prompt()},
-      {"role": "user", "content": text}
+      {"role": "system", "content": prompt::system_prompt_with(req.vocabulary, has_placeholders)},
+      {"role": "user", "content": req.text}
     ]
   });
   let client = reqwest::Client::builder()
-    .timeout(timeout)
+    .timeout(req.timeout)
     .build()
     .map_err(|_| RefineError::Network)?;
   let resp = client
@@ -174,12 +161,12 @@ pub async fn refine(
   p: &RefineProvider,
   key: Option<String>,
   model: &str,
-  text: &str,
-  timeout: Duration,
+  req: &Request<'_>,
 ) -> Result<String, RefineError> {
+  let text = req.text;
   let key = key.ok_or(RefineError::MissingKey)?;
   let started = std::time::Instant::now();
-  let result = call_chat(p, &key, model, text, timeout)
+  let result = call_chat(p, &key, model, req)
     .await
     .and_then(|r| validate_refined(&r, text));
   let ms = started.elapsed().as_millis() as u64;
@@ -249,12 +236,5 @@ mod tests {
       validate_refined(&long, "one two three four five"),
       Err(RefineError::Rejected)
     );
-  }
-
-  #[test]
-  fn cleanup_capitalizes_unicode_and_keeps_bengali_danda() {
-    assert_eq!(basic_punctuation_cleanup("hello world"), "Hello world.");
-    assert_eq!(basic_punctuation_cleanup("émile"), "Émile.");
-    assert_eq!(basic_punctuation_cleanup("আমি ভালো আছি।"), "আমি ভালো আছি।");
   }
 }

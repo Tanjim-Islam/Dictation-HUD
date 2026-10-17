@@ -189,6 +189,42 @@
           "markdownDescription": "Enables the clear_provider_key command without any pre-configured scope."
         },
         {
+          "description": "Enables the dictionary_accept command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-accept",
+          "markdownDescription": "Enables the dictionary_accept command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-add",
+          "markdownDescription": "Enables the dictionary_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-delete",
+          "markdownDescription": "Enables the dictionary_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-import",
+          "markdownDescription": "Enables the dictionary_import command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-list",
+          "markdownDescription": "Enables the dictionary_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-update",
+          "markdownDescription": "Enables the dictionary_update command without any pre-configured scope."
+        },
+        {
           "description": "Enables the elevenlabs_pool_add command without any pre-configured scope.",
           "type": "string",
           "const": "allow-elevenlabs-pool-add",
@@ -363,6 +399,30 @@
           "markdownDescription": "Enables the set_provider_key command without any pre-configured scope."
         },
         {
+          "description": "Enables the snippets_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-add",
+          "markdownDescription": "Enables the snippets_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-delete",
+          "markdownDescription": "Enables the snippets_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-list",
+          "markdownDescription": "Enables the snippets_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-update",
+          "markdownDescription": "Enables the snippets_update command without any pre-configured scope."
+        },
+        {
           "description": "Enables the test_provider command without any pre-configured scope.",
           "type": "string",
           "const": "allow-test-provider",
@@ -385,6 +445,42 @@
           "type": "string",
           "const": "deny-clear-provider-key",
           "markdownDescription": "Denies the clear_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_accept command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-accept",
+          "markdownDescription": "Denies the dictionary_accept command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-add",
+          "markdownDescription": "Denies the dictionary_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-delete",
+          "markdownDescription": "Denies the dictionary_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-import",
+          "markdownDescription": "Denies the dictionary_import command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-list",
+          "markdownDescription": "Denies the dictionary_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-update",
+          "markdownDescription": "Denies the dictionary_update command without any pre-configured scope."
         },
         {
           "description": "Denies the elevenlabs_pool_add command without any pre-configured scope.",
@@ -559,6 +655,30 @@
           "type": "string",
           "const": "deny-set-provider-key",
           "markdownDescription": "Denies the set_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-add",
+          "markdownDescription": "Denies the snippets_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-delete",
+          "markdownDescription": "Denies the snippets_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-list",
+          "markdownDescription": "Denies the snippets_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-update",
+          "markdownDescription": "Denies the snippets_update command without any pre-configured scope."
         },
         {
           "description": "Denies the test_provider command without any pre-configured scope.",

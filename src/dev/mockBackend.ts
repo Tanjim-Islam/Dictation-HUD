@@ -1,6 +1,6 @@
 // Development-only mock of backend commands, used when the UI runs in a plain browser.
 // Lets layout and interaction be inspected without Tauri. Never bundled in production paths.
-import { setInvokeImpl, type HistoryItem, type HistoryQuery, type PoolView, type ProvidersOverview, type Settings } from '@/lib/api';
+import { setInvokeImpl, type HistoryItem, type HistoryQuery, type PoolView, type ProvidersOverview, type Settings, type Snippet, type Term } from '@/lib/api';
 
 const nova3 = ['multi', 'en', 'en-US', 'en-GB', 'bn', 'hi', 'es', 'fr', 'de', 'ja', 'zh-CN', 'ar', 'pt', 'ru', 'it'];
 const settings: Settings = {
@@ -20,6 +20,7 @@ const settings: Settings = {
   megallm_model: 'gpt-4o-mini',
   audio_retention_days: 14,
   flowbar_edge: 'bottom',
+  smart_formatting: true,
 };
 
 let pool: PoolView = {
@@ -110,6 +111,20 @@ function listHistory(q: HistoryQuery) {
     .slice(0, q.limit ?? 60);
 }
 
+let terms: Term[] = [
+  { id: 1, phrase: 'WACV', heard: 'wack v', source: 'learned', status: 'suggested', uses: 0, created_at: Date.now() },
+  { id: 2, phrase: 'Tanjim Riju', heard: null, source: 'manual', status: 'active', uses: 4, created_at: Date.now() - 1000 },
+  { id: 3, phrase: 'Citibank', heard: 'city bank', source: 'manual', status: 'active', uses: 2, created_at: Date.now() - 2000 },
+  { id: 4, phrase: 'Daraz', heard: null, source: 'learned', status: 'active', uses: 1, created_at: Date.now() - 3000 },
+  { id: 5, phrase: 'OpenRouter', heard: null, source: 'import', status: 'active', uses: 0, created_at: Date.now() - 4000 },
+];
+let snippets: Snippet[] = [
+  { id: 1, trigger: 'my email address', expansion: 'tanjim@example.com', uses: 3, created_at: Date.now() },
+  { id: 2, trigger: 'my linkedin', expansion: 'https://www.linkedin.com/in/example/', uses: 1, created_at: Date.now() - 1000 },
+  { id: 3, trigger: 'organize thoughts prompt', expansion: 'Organize these unstructured thoughts into a clear, polished version without changing the meaning.', uses: 0, created_at: Date.now() - 2000 },
+];
+let nextId = 100;
+
 const delay = <T>(v: T, ms = 120) => new Promise<T>((r) => setTimeout(() => r(structuredClone(v)), ms));
 
 export function installMockBackend() {
@@ -178,6 +193,47 @@ export function installMockBackend() {
         return Promise.reject(new Error('No audio in browser preview')) as Promise<T>;
       case 'history_storage':
         return delay({ sessions: history.length, audio_files: history.filter((h) => h.audio_state === 'encoded').length, audio_bytes: 98_400, retention_days: settings.audio_retention_days }) as Promise<T>;
+      case 'dictionary_list':
+        return delay(terms) as Promise<T>;
+      case 'dictionary_add': {
+        const input = args.input as { phrase: string; heard?: string | null };
+        if (terms.some((t) => t.phrase.toLowerCase() === input.phrase.trim().toLowerCase() && (t.heard ?? '') === (input.heard ?? ''))) return Promise.reject(new Error('That entry already exists.'));
+        const t: Term = { id: nextId++, phrase: input.phrase.trim(), heard: input.heard ?? null, source: 'manual', status: 'active', uses: 0, created_at: Date.now() };
+        terms = [t, ...terms];
+        return delay(t) as Promise<T>;
+      }
+      case 'dictionary_update': {
+        const input = args.input as { phrase: string; heard?: string | null };
+        terms = terms.map((t) => (t.id === args.id ? { ...t, phrase: input.phrase, heard: input.heard ?? null } : t));
+        return delay(terms.find((t) => t.id === args.id)) as Promise<T>;
+      }
+      case 'dictionary_delete':
+        terms = terms.filter((t) => t.id !== args.id);
+        return delay(undefined as T);
+      case 'dictionary_accept':
+        terms = terms.map((t) => (t.id === args.id ? { ...t, status: 'active' } : t));
+        return delay(undefined as T);
+      case 'dictionary_import': {
+        const lines = String(args.text).split('\n').filter((l) => l.trim());
+        for (const l of lines) terms = [{ id: nextId++, phrase: l.split('->').pop()!.trim(), heard: l.includes('->') ? l.split('->')[0].trim() : null, source: 'import', status: 'active', uses: 0, created_at: Date.now() }, ...terms];
+        return delay({ added: lines.length, skipped: 0 }) as Promise<T>;
+      }
+      case 'snippets_list':
+        return delay(snippets) as Promise<T>;
+      case 'snippets_add': {
+        const input = args.input as { trigger: string; expansion: string };
+        const sn: Snippet = { id: nextId++, trigger: input.trigger.trim(), expansion: input.expansion, uses: 0, created_at: Date.now() };
+        snippets = [sn, ...snippets];
+        return delay(sn) as Promise<T>;
+      }
+      case 'snippets_update': {
+        const input = args.input as { trigger: string; expansion: string };
+        snippets = snippets.map((x) => (x.id === args.id ? { ...x, ...input } : x));
+        return delay(snippets.find((x) => x.id === args.id)) as Promise<T>;
+      }
+      case 'snippets_delete':
+        snippets = snippets.filter((x) => x.id !== args.id);
+        return delay(undefined as T);
       case 'session_snapshot':
         return delay({ session_id: null, phase: 'idle', error: null }) as Promise<T>;
       default:

@@ -5,6 +5,7 @@
 
 pub mod audio;
 pub mod history;
+pub mod lexicon;
 pub mod sessions;
 
 use std::path::Path;
@@ -87,6 +88,30 @@ const MIGRATIONS: &[&str] = &[
   r#"
   ALTER TABLE attempts ADD COLUMN parent_id INTEGER REFERENCES attempts(id) ON DELETE SET NULL;
   ALTER TABLE sessions ADD COLUMN recovered_from TEXT;
+  "#,
+  // v5: personal dictionary (vocabulary and corrections) and snippets.
+  r#"
+  CREATE TABLE dictionary (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    phrase     TEXT NOT NULL,
+    heard      TEXT,
+    source     TEXT NOT NULL DEFAULT 'manual',
+    status     TEXT NOT NULL DEFAULT 'active',
+    uses       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX dictionary_unique ON dictionary(lower(phrase), lower(COALESCE(heard, '')));
+
+  CREATE TABLE snippets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigger    TEXT NOT NULL,
+    expansion  TEXT NOT NULL,
+    uses       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX snippets_trigger ON snippets(lower(trigger));
   "#,
 ];
 

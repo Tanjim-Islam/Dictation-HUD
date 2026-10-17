@@ -22,6 +22,7 @@ export type Settings = {
   /** Days to keep recordings; 0 keeps them forever. */
   audio_retention_days: number;
   flowbar_edge: 'bottom' | 'top' | 'left' | 'right';
+  smart_formatting: boolean;
 };
 
 export type SettingsPatch = Partial<Omit<Settings, 'version' | 'autostart' | 'input_device'>> & { input_device?: string };
@@ -114,6 +115,20 @@ export type AttemptRow = {
 export type HistoryDetail = HistoryItem & { attempts: AttemptRow[] };
 export type StorageView = { sessions: number; audio_files: number; audio_bytes: number; retention_days: number };
 
+export type Term = {
+  id: number;
+  phrase: string;
+  heard: string | null;
+  source: 'manual' | 'learned' | 'import';
+  status: 'active' | 'suggested';
+  uses: number;
+  created_at: number;
+};
+export type TermInput = { phrase: string; heard?: string | null };
+export type Snippet = { id: number; trigger: string; expansion: string; uses: number; created_at: number };
+export type SnippetInput = { trigger: string; expansion: string };
+export type ImportResult = { added: number; skipped: number };
+
 export type TestResult = { ok: boolean; message: string };
 export type AudioDevice = { id: string; name: string; is_default: boolean };
 
@@ -155,6 +170,20 @@ export const api = {
     remove: (id: string, audioOnly: boolean) => invoke<void>('history_delete', { id, audioOnly }),
     storage: () => invoke<StorageView>('history_storage'),
   },
+  dictionary: {
+    list: () => invoke<Term[]>('dictionary_list'),
+    add: (input: TermInput) => invoke<Term>('dictionary_add', { input }),
+    update: (id: number, input: TermInput) => invoke<Term>('dictionary_update', { id, input }),
+    remove: (id: number) => invoke<void>('dictionary_delete', { id }),
+    accept: (id: number) => invoke<void>('dictionary_accept', { id }),
+    importText: (text: string) => invoke<ImportResult>('dictionary_import', { text }),
+  },
+  snippets: {
+    list: () => invoke<Snippet[]>('snippets_list'),
+    add: (input: SnippetInput) => invoke<Snippet>('snippets_add', { input }),
+    update: (id: number, input: SnippetInput) => invoke<Snippet>('snippets_update', { id, input }),
+    remove: (id: number) => invoke<void>('snippets_delete', { id }),
+  },
   audioDevices: () => invoke<AudioDevice[]>('audio_devices'),
   getHotkey: () => invoke<string>('get_hotkey'),
   setHotkey: (combo: string) => invoke<void>('set_hotkey', { combo }),
@@ -169,6 +198,11 @@ export function onPoolChange(cb: (v: PoolView) => void): Promise<UnlistenFn> {
 export function onHistoryChange(cb: () => void): Promise<UnlistenFn> {
   if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
   return listen('history://changed', () => cb());
+}
+
+export function onLexiconChange(cb: () => void): Promise<UnlistenFn> {
+  if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
+  return listen('lexicon://changed', () => cb());
 }
 
 export function errorMessage(e: unknown) {

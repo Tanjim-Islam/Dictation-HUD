@@ -176,7 +176,7 @@ async fn run(base: String, key: String, mut ctx: StreamCtx) {
       Ok(Ok((ws, _))) => ws,
     },
   };
-  tracing::info!(provider = "deepgram", ms = started.elapsed().as_millis() as u64, model = %ctx.options.model, language = %ctx.options.language, "connected");
+  tracing::info!(provider = "deepgram", ms = started.elapsed().as_millis() as u64, model = %ctx.options.model, language = %ctx.options.language, keyterms = ctx.options.keyterms.len(), "connected");
   ctx.emit(SttEvent::Connected).await;
 
   let (mut sink, mut stream) = ws.split();

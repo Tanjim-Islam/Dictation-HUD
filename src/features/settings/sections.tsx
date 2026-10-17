@@ -42,6 +42,11 @@ export function GeneralSection() {
           control={<Switch aria-label="Paste automatically" checked={settings.auto_paste} onCheckedChange={(v) => update({ auto_paste: v })} />}
         />
         <Row
+          title="Smart formatting"
+          description="Tidy spacing, capitalize “I” and new sentences after spoken commands like “new line”. Words and punctuation from the speech provider are otherwise kept."
+          control={<Switch aria-label="Smart formatting" checked={settings.smart_formatting} onCheckedChange={(v) => update({ smart_formatting: v })} />}
+        />
+        <Row
           title="Flow Bar position"
           description="Where the Flow Bar appears while you dictate, on the screen of the app you are using."
           control={

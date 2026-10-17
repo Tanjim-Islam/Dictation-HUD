@@ -4,6 +4,7 @@ pub mod commands;
 pub mod credentials;
 pub mod db;
 pub mod delivery;
+pub mod dictionary;
 pub mod engine;
 pub mod flowbar;
 pub mod history;
@@ -15,8 +16,8 @@ pub mod refine;
 pub mod services;
 pub mod session;
 pub mod settings;
-pub mod symbols;
 pub mod target;
+pub mod textproc;
 pub mod transcript;
 
 use std::sync::Arc;
@@ -273,6 +274,16 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       history::history_show_export,
       history::history_delete,
       history::history_storage,
+      dictionary::dictionary_list,
+      dictionary::dictionary_add,
+      dictionary::dictionary_update,
+      dictionary::dictionary_delete,
+      dictionary::dictionary_accept,
+      dictionary::dictionary_import,
+      dictionary::snippets_list,
+      dictionary::snippets_add,
+      dictionary::snippets_update,
+      dictionary::snippets_delete,
     ])
     .run(context)
 }

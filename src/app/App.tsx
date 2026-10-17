@@ -1,20 +1,28 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import { listen } from '@tauri-apps/api/event';
-import { History } from 'lucide-react';
+import { BookA, History, Scissors } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsProvider } from '@/features/settings/SettingsContext';
 import { SettingsDialog, type SettingsSectionId } from '@/features/settings/SettingsDialog';
 import { HistoryPage } from '@/features/history/HistoryPage';
+import { DictionaryPage } from '@/features/dictionary/DictionaryPage';
+import { SnippetsPage } from '@/features/snippets/SnippetsPage';
 import { transition } from '@/lib/motion';
 import { Sidebar, type NavItem } from './Sidebar';
 import { TitleBar } from './TitleBar';
 
-const NAV: NavItem[] = [{ id: 'history', label: 'History', icon: History }];
+const NAV: NavItem[] = [
+  { id: 'history', label: 'History', icon: History },
+  { id: 'dictionary', label: 'Dictionary', icon: BookA },
+  { id: 'snippets', label: 'Snippets', icon: Scissors },
+];
 
 const PAGES: Record<string, () => React.ReactNode> = {
   history: () => <HistoryPage />,
+  dictionary: () => <DictionaryPage />,
+  snippets: () => <SnippetsPage />,
 };
 
 export function App() {

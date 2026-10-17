@@ -22,7 +22,7 @@ use crate::session::host::Host;
 use crate::session::machine::{DeliveryOutcome, Input, Outcome, Processed, SessionId, Snapshot, Trigger};
 use crate::session::SessionHandle;
 use crate::target::{self, Target};
-use crate::{flowbar, refine, settings, symbols};
+use crate::{flowbar, refine, settings, textproc};
 
 pub const SNAPSHOT_EVENT: &str = "session://snapshot";
 pub const LEVEL_EVENT: &str = "session://level";
@@ -150,7 +150,8 @@ impl Host for TauriHost {
       provider: s.stt_provider.clone(),
       model: s.stt_model().to_string(),
       language: s.language.clone(),
-      keyterms: Vec::new(),
+      // Dictionary terms as recognition hints; adapters drop them for models without hints.
+      keyterms: lexicon(&self.app).vocabulary,
       capture: CaptureConfig {
         device_id: s.input_device.clone(),
         echo_cancellation: s.echo_cancellation,
@@ -231,6 +232,7 @@ impl Host for TauriHost {
         Some(o) => {
           // Persist every stage before delivery starts.
           let db = app.state::<Db>();
+          db_warn("count_uses", db.count_uses(&o.corrections, &o.snippets));
           db_warn(
             "save_processing",
             db.save_processing(
@@ -358,10 +360,24 @@ pub struct ProcessOutput {
   pub refine_model: Option<String>,
   /// ok | failed | off
   pub refine_status: &'static str,
+  /// Dictionary corrections and snippets used (row ids, one per use).
+  pub corrections: Vec<i64>,
+  pub snippets: Vec<i64>,
 }
 
-/// Deterministic formatting, then optional AI refinement with deterministic fallback.
-/// `None` means there was no text.
+/// The user's active dictionary and snippets (empty if the database is unavailable).
+pub fn lexicon(app: &AppHandle) -> textproc::Lexicon {
+  match app.state::<Db>().lexicon() {
+    Ok(l) => l,
+    Err(e) => {
+      tracing::warn!(error = %e, "dictionary unavailable; continuing without it");
+      textproc::Lexicon::default()
+    }
+  }
+}
+
+/// Deterministic pipeline (dictionary, snippets, spoken commands, smart formatting), then
+/// optional AI refinement with deterministic fallback. `None` means there was no text.
 pub async fn process_text(app: &AppHandle, transcript: &str) -> Option<ProcessOutput> {
   process_text_with(app, transcript, false).await
 }
@@ -369,19 +385,26 @@ pub async fn process_text(app: &AppHandle, transcript: &str) -> Option<ProcessOu
 /// Like [`process_text`]; `force_refine` runs AI refinement even when it is turned off
 /// (History "Retry refinement").
 pub async fn process_text_with(app: &AppHandle, transcript: &str, force_refine: bool) -> Option<ProcessOutput> {
-  let formatted = symbols::replace_symbols(transcript);
+  let s = settings::load(app);
+  let lex = lexicon(app);
+  let prepared = textproc::prepare(transcript, &lex, s.smart_formatting);
+  // Restoring into the deterministic text cannot fail: it holds every placeholder once.
+  let formatted = textproc::finish(&prepared.text, &prepared.expansions).unwrap_or_else(|_| prepared.text.clone());
   if formatted.trim().is_empty() {
     return None;
   }
-  let s = settings::load(app);
-  if !s.ai_refine && !force_refine {
-    return Some(ProcessOutput {
-      final_text: formatted.clone(),
-      formatted,
-      refine_provider: None,
-      refine_model: None,
-      refine_status: "off",
-    });
+  let off = |formatted: String| ProcessOutput {
+    final_text: formatted.clone(),
+    formatted,
+    refine_provider: None,
+    refine_model: None,
+    refine_status: "off",
+    corrections: prepared.corrections.clone(),
+    snippets: prepared.snippets.clone(),
+  };
+  // Nothing to refine when the dictation was only snippet triggers.
+  if (!s.ai_refine && !force_refine) || !prepared.has_prose() {
+    return Some(off(formatted));
   }
   let p = refine::provider(&s.ai_provider);
   let model = if p.id == "megallm" {
@@ -390,14 +413,24 @@ pub async fn process_text_with(app: &AppHandle, transcript: &str, force_refine: 
     s.openrouter_model.clone()
   };
   let key = app.state::<Services>().refine_key(p);
-  let timeout = if force_refine {
-    refine::RETRY_TIMEOUT
-  } else {
-    refine::LIVE_TIMEOUT
+  let req = refine::Request {
+    text: &prepared.text,
+    vocabulary: &lex.vocabulary,
+    timeout: if force_refine {
+      refine::RETRY_TIMEOUT
+    } else {
+      refine::LIVE_TIMEOUT
+    },
   };
-  let (final_text, refine_status) = match refine::refine(p, key, &model, &formatted, timeout).await {
-    Ok(refined) => (refined, "ok"),
-    Err(_) => (refine::basic_punctuation_cleanup(&formatted), "failed"),
+  let (final_text, refine_status) = match refine::refine(p, key, &model, &req).await {
+    Ok(refined) => match textproc::finish(&refined, &prepared.expansions) {
+      Ok(text) => (text, "ok"),
+      Err(_) => {
+        tracing::warn!("refinement altered a snippet placeholder; using formatted text");
+        (formatted.clone(), "failed")
+      }
+    },
+    Err(_) => (formatted.clone(), "failed"),
   };
   Some(ProcessOutput {
     formatted,
@@ -405,5 +438,7 @@ pub async fn process_text_with(app: &AppHandle, transcript: &str, force_refine: 
     refine_provider: Some(p.id.to_string()),
     refine_model: Some(model),
     refine_status,
+    corrections: prepared.corrections.clone(),
+    snippets: prepared.snippets.clone(),
   })
 }
