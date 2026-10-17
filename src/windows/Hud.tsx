@@ -1,192 +1,79 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
-import { Waveform } from '../components/Waveform';
-import { Badge } from '../components/Badge';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { log } from '../lib/log';
-import { CAPTURE_PHASES, getSnapshot, onSnapshot, sendIntent, type SessionSnapshot } from '../lib/session';
-import type { Stream } from '../lib/deepgram';
+import { getSnapshot, onSnapshot, sendIntent, type SessionSnapshot } from '../lib/session';
 
-type EngineStart = { sessionId: string; provider: string; echoCancellation: boolean; noiseSuppression: boolean };
-type RuntimeKeys = [string | null, string | null, string | null, string | null];
-type EngineEventPayload =
-  | { type: 'ready' | 'finalized' }
-  | { type: 'interim' | 'final'; text: string }
-  | { type: 'failed'; error: string };
+type Level = { session_id: string; rms_db: number; peak_db: number };
 
-const report = (sessionId: string, event: EngineEventPayload) =>
-  invoke('engine_event', { sessionId, event }).catch(() => {});
-
-/**
- * Legacy HUD, now a renderer of the Rust session snapshot plus a temporary engine host
- * (microphone + provider socket) driven by `engine://*` commands. Session state is owned by
- * Rust; this component never decides lifecycle. Replaced by the Flow Bar in Phase 7.
- */
-class WebEngine {
-  private stream: Stream | null = null;
-  private media: MediaStream | null = null;
-  private analyserCtx: AudioContext | null = null;
-  // Set by finish or cancel; a start still awaiting the mic or socket must then bail out.
-  private stopped = false;
-
-  constructor(
-    readonly sessionId: string,
-    private onAnalyser: (a: AnalyserNode | null) => void,
-  ) {}
-
-  async start(cmd: EngineStart) {
-    const fail = (error: string) => {
-      this.release();
-      report(this.sessionId, { type: 'failed', error });
+/** Ten bars driven by native level events. Rebuilt with the full waveform model in Phase 7. */
+function LevelBars({ sessionId }: { sessionId: string | null }) {
+  const [level, setLevel] = useState(0);
+  const smooth = useRef(0);
+  useEffect(() => {
+    const un = listen<Level>('session://level', (e) => {
+      if (e.payload.session_id !== sessionId) return;
+      // -60 dB floor .. -10 dB full.
+      const target = Math.max(0, Math.min(1, (e.payload.rms_db + 60) / 50));
+      smooth.current = target > smooth.current ? target : smooth.current * 0.8 + target * 0.2;
+      setLevel(smooth.current);
+    });
+    return () => {
+      un.then((f) => f());
     };
-    try {
-      this.media = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: cmd.echoCancellation, noiseSuppression: cmd.noiseSuppression, channelCount: 1 },
-      });
-    } catch {
-      return fail('microphone');
-    }
-    if (this.stopped) return this.release();
-
-    this.analyserCtx = new AudioContext();
-    const an = this.analyserCtx.createAnalyser();
-    an.fftSize = 1024;
-    this.analyserCtx.createMediaStreamSource(this.media).connect(an);
-    this.onAnalyser(an);
-
-    const handlers = {
-      onOpen: () => report(this.sessionId, { type: 'ready' }),
-      onTranscript: (text: string, isFinal: boolean) =>
-        report(this.sessionId, { type: isFinal ? 'final' : 'interim', text }),
-      onError: (kind: string) => fail(kind),
-    };
-    try {
-      const [, dg, , el] = await invoke<RuntimeKeys>('runtime_keys');
-      if (cmd.provider === 'elevenlabs') {
-        if (!el) return fail('missing_key');
-        const token = await invoke<string>('create_elevenlabs_token').catch(() => null);
-        if (!token) return fail('auth');
-        const { startElevenLabsStream } = await import('../lib/elevenlabs');
-        this.stream = await startElevenLabsStream(token, this.media, handlers);
-      } else {
-        if (!dg) return fail('missing_key');
-        const { startDeepgramStream } = await import('../lib/deepgram');
-        this.stream = await startDeepgramStream(dg, this.media, handlers);
-      }
-      if (this.stopped) {
-        this.stream?.cancel();
-        this.release();
-      }
-    } catch {
-      fail('network');
-    }
-  }
-
-  async finish() {
-    this.stopped = true;
-    const s = this.stream;
-    this.releaseMic();
-    if (s) await s.finish();
-    this.release();
-    report(this.sessionId, { type: 'finalized' });
-  }
-
-  cancel() {
-    this.stopped = true;
-    this.stream?.cancel();
-    this.release();
-  }
-
-  private releaseMic() {
-    this.media?.getTracks().forEach((t) => t.stop());
-    this.media = null;
-  }
-
-  private release() {
-    this.releaseMic();
-    this.stream = null;
-    this.analyserCtx?.close().catch(() => {});
-    this.analyserCtx = null;
-    this.onAnalyser(null);
-  }
+  }, [sessionId]);
+  return (
+    <div className="flex h-5 items-center gap-[3px]">
+      {Array.from({ length: 10 }, (_, i) => {
+        const taper = 1 - Math.abs(i - 4.5) / 6;
+        const h = Math.max(3, level * 20 * taper);
+        return <span key={i} className="w-[2.5px] rounded-full bg-white/85 transition-[height] duration-75" style={{ height: h }} />;
+      })}
+    </div>
+  );
 }
 
 export function Hud() {
   const [snapshot, setSnapshot] = useState<SessionSnapshot>({ session_id: null, phase: 'idle', error: null });
-  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
-  const engineRef = useRef<WebEngine | null>(null);
 
   useEffect(() => {
-    const subs = [
-      onSnapshot(setSnapshot),
-      listen<EngineStart>('engine://start', (e) => {
-        engineRef.current?.cancel();
-        const engine = new WebEngine(e.payload.sessionId, setAnalyser);
-        engineRef.current = engine;
-        engine.start(e.payload);
-        log(`engine start provider=${e.payload.provider}`);
-      }),
-      listen<string>('engine://finish', (e) => {
-        const engine = engineRef.current;
-        if (engine?.sessionId === e.payload) engine.finish();
-      }),
-      listen<string>('engine://cancel', (e) => {
-        const engine = engineRef.current;
-        if (engine?.sessionId === e.payload) {
-          engine.cancel();
-          engineRef.current = null;
-        }
-      }),
-    ];
-    // Recover after a WebView reload: render current truth, and report a capture session
-    // whose engine died with the previous page.
-    getSnapshot()
-      .then((s) => {
-        setSnapshot(s);
-        if (s.session_id && CAPTURE_PHASES.includes(s.phase) && engineRef.current?.sessionId !== s.session_id) {
-          report(s.session_id, { type: 'failed', error: 'lost' });
-        }
-      })
-      .catch(() => {});
+    const un = onSnapshot(setSnapshot);
+    // After a WebView reload, render current truth. The session itself lives in Rust.
+    getSnapshot().then(setSnapshot).catch(() => {});
     return () => {
-      subs.forEach((p) => p.then((un) => un()));
+      un.then((f) => f());
     };
   }, []);
 
   const { phase } = snapshot;
-  const show = phase !== 'idle';
-  const capturing = phase === 'listening';
   const busy = phase === 'preparing' || phase === 'finalizing' || phase === 'processing' || phase === 'delivering';
 
   return (
     <div className="pointer-events-none">
       <AnimatePresence>
-        {show && phase !== 'error' && (
-          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-4 z-50">
+        {phase !== 'idle' && phase !== 'error' && (
+          <div className="fixed bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-3">
             <motion.div
               initial={{ scale: 0.9, y: 10, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 10, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="w-[90px] h-[40px] bg-[#0f0f0f]/95 border border-white/5 rounded-full shadow-lg flex items-center justify-center"
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="flex h-[40px] w-[90px] items-center justify-center rounded-full border border-white/5 bg-[#0f0f0f]/95 shadow-lg"
             >
-              {capturing && analyser ? (
-                <Waveform analyser={analyser} />
+              {phase === 'listening' ? (
+                <LevelBars sessionId={snapshot.session_id} />
               ) : (
-                busy && <div className="w-3 h-3 border-2 border-white/30 border-t-white/80 rounded-full animate-spin" aria-hidden="true" />
+                busy && <div className="size-3 animate-spin rounded-full border-2 border-white/30 border-t-white/80" aria-hidden="true" />
               )}
             </motion.div>
             <motion.button
               initial={{ x: 10, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 10, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
               onClick={() => sendIntent('finish', 'flow_bar')}
               aria-label="Finish dictation"
-              className="w-[32px] h-[32px] rounded-full bg-[#1c1c1c] border border-white/5 flex items-center justify-center hover:scale-105 active:scale-95 transition-all pointer-events-auto focus:outline-none"
+              className="pointer-events-auto flex size-[32px] items-center justify-center rounded-full border border-white/5 bg-[#1c1c1c] transition-transform hover:scale-105 active:scale-95"
             >
-              <div className="w-[10px] h-[10px] bg-[#f2f1ea] rounded-sm"></div>
+              <div className="size-[10px] rounded-sm bg-[#f2f1ea]" />
             </motion.button>
           </div>
         )}
@@ -197,10 +84,9 @@ export function Hud() {
             initial={{ y: 8, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 8, opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed left-1/2 -translate-x-1/2 bottom-[30px]"
+            className="fixed bottom-[30px] left-1/2 -translate-x-1/2 rounded-full border border-[#7a1f1f] bg-[#fbe9e9] px-3 py-1 text-xs text-[#7a1f1f] shadow-sm"
           >
-            <Badge text={snapshot.error} />
+            {snapshot.error}
           </motion.div>
         )}
       </AnimatePresence>

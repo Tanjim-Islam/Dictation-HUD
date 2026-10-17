@@ -2,9 +2,7 @@
 
 use std::time::Duration;
 
-use tauri::AppHandle;
-
-use crate::{config, logging::text_shape, prompt};
+use crate::{logging::text_shape, prompt};
 
 #[derive(Debug, PartialEq)]
 pub enum RefineError {
@@ -95,21 +93,43 @@ pub fn basic_punctuation_cleanup(text: &str) -> String {
   result
 }
 
-struct Endpoint {
-  url: &'static str,
-  name: &'static str,
+/// OpenAI-compatible chat completion providers used for refinement.
+#[derive(Debug, Clone, Copy)]
+pub struct RefineProvider {
+  pub id: &'static str,
+  pub name: &'static str,
+  pub chat_url: &'static str,
+  pub models_url: &'static str,
+  /// Secret name in the OS credential store.
+  pub secret: &'static str,
+  /// Development-only `.env` variable.
+  pub env: &'static str,
 }
 
-const OPENROUTER: Endpoint = Endpoint {
-  url: "https://openrouter.ai/api/v1/chat/completions",
-  name: "openrouter",
-};
-const MEGALLM: Endpoint = Endpoint {
-  url: "https://ai.megallm.io/v1/chat/completions",
-  name: "megallm",
-};
+pub const PROVIDERS: &[RefineProvider] = &[
+  RefineProvider {
+    id: "openrouter",
+    name: "OpenRouter",
+    chat_url: "https://openrouter.ai/api/v1/chat/completions",
+    models_url: "https://openrouter.ai/api/v1/models",
+    secret: crate::credentials::names::OPENROUTER,
+    env: "OPENROUTER_API_KEY",
+  },
+  RefineProvider {
+    id: "megallm",
+    name: "MegaLLM",
+    chat_url: "https://ai.megallm.io/v1/chat/completions",
+    models_url: "https://ai.megallm.io/v1/models",
+    secret: crate::credentials::names::MEGALLM,
+    env: "MEGALLM_API_KEY",
+  },
+];
 
-async fn call_chat(endpoint: &Endpoint, key: &str, model: &str, text: &str) -> Result<String, RefineError> {
+pub fn provider(id: &str) -> &'static RefineProvider {
+  PROVIDERS.iter().find(|p| p.id == id).unwrap_or(&PROVIDERS[0])
+}
+
+async fn call_chat(p: &RefineProvider, key: &str, model: &str, text: &str) -> Result<String, RefineError> {
   let body = serde_json::json!({
     "model": model,
     "messages": [
@@ -122,8 +142,9 @@ async fn call_chat(endpoint: &Endpoint, key: &str, model: &str, text: &str) -> R
     .build()
     .map_err(|_| RefineError::Network)?;
   let resp = client
-    .post(endpoint.url)
+    .post(p.chat_url)
     .bearer_auth(key)
+    .header("X-Title", "Dictation HUD")
     .json(&body)
     .send()
     .await
@@ -136,31 +157,18 @@ async fn call_chat(endpoint: &Endpoint, key: &str, model: &str, text: &str) -> R
   extract_completion_text(&text_body)
 }
 
-/// Refines `text` with the chosen provider. Returns the provider error on failure so the
-/// caller can decide on the fallback.
-pub async fn refine_with_provider(app: &AppHandle, provider: &str, text: &str) -> Result<String, RefineError> {
-  let (endpoint, key, model) = if provider == "megallm" {
-    let key = config::get_megallm_key(app).await.ok_or(RefineError::MissingKey)?;
-    let model = config::get_megallm_model(app).await.unwrap_or_else(|| "gpt-4".into());
-    (&MEGALLM, key, model)
-  } else {
-    let key = config::get_openrouter_key(app).await.ok_or(RefineError::MissingKey)?;
-    let model = config::get_model(app)
-      .await
-      .unwrap_or_else(|| "openai/gpt-oss-20b:free".into());
-    (&OPENROUTER, key, model)
-  };
+/// Refines `text` with the given provider, key, and model. Returns the provider error on
+/// failure so the caller can fall back to deterministic text.
+pub async fn refine(p: &RefineProvider, key: Option<String>, model: &str, text: &str) -> Result<String, RefineError> {
+  let key = key.ok_or(RefineError::MissingKey)?;
   let started = std::time::Instant::now();
-  let result = call_chat(endpoint, &key, &model, text)
+  let result = call_chat(p, &key, model, text)
     .await
     .and_then(|r| validate_refined(&r, text));
+  let ms = started.elapsed().as_millis() as u64;
   match &result {
-    Ok(out) => {
-      tracing::info!(provider = endpoint.name, ms = started.elapsed().as_millis() as u64, output = %text_shape(out), "refinement ok")
-    }
-    Err(e) => {
-      tracing::warn!(provider = endpoint.name, ms = started.elapsed().as_millis() as u64, error = %e, "refinement failed")
-    }
+    Ok(out) => tracing::info!(provider = p.id, model, ms, output = %text_shape(out), "refinement ok"),
+    Err(e) => tracing::warn!(provider = p.id, model, ms, error = %e, "refinement failed"),
   }
   result
 }

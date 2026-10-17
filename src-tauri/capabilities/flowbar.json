@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "flowbar",
+  "description": "Flow Bar: render session state and send intents only.",
+  "local": true,
+  "windows": [
+    "hud"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-session-intent",
+    "allow-session-snapshot",
+    "allow-log-to-terminal"
+  ]
+}

@@ -1,12 +1,16 @@
 pub mod app_host;
+pub mod audio;
 pub mod commands;
-pub mod config;
+pub mod credentials;
+pub mod engine;
 pub mod flowbar;
 pub mod hotkey;
 pub mod logging;
 pub mod paste;
 pub mod prompt;
+pub mod providers;
 pub mod refine;
+pub mod services;
 pub mod session;
 pub mod settings;
 pub mod symbols;
@@ -23,9 +27,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as _;
 
-use session::machine::{EngineError, EngineEvent, SessionId};
 use session::{Input, SessionHandle, Snapshot, Trigger};
-use settings::{BehaviorPatch, BehaviorPrefs};
 
 /// Most recent completed transcript, for "Paste last transcript". Moves to SQLite in Phase 3.
 #[derive(Default)]
@@ -77,43 +79,6 @@ async fn session_snapshot(session: State<'_, SessionHandle>) -> Result<Snapshot,
     .ok_or_else(|| "session manager unavailable".into())
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum EngineEventDto {
-  Ready,
-  Interim { text: String },
-  Final { text: String },
-  Finalized,
-  Failed { error: String },
-}
-
-/// Phase 1 bridge for the WebView-hosted engine. Events carry the session id; the machine
-/// drops any that do not match the active session.
-#[tauri::command]
-async fn engine_event(
-  session: State<'_, SessionHandle>,
-  session_id: String,
-  event: EngineEventDto,
-) -> Result<(), String> {
-  let id: SessionId = session_id.parse().map_err(|_| "bad session id".to_string())?;
-  let ev = match event {
-    EngineEventDto::Ready => EngineEvent::Ready,
-    EngineEventDto::Interim { text } => EngineEvent::Interim(text),
-    EngineEventDto::Final { text } => EngineEvent::Final(text),
-    EngineEventDto::Finalized => EngineEvent::Finalized,
-    EngineEventDto::Failed { error } => EngineEvent::Failed(match error.as_str() {
-      "missing_key" => EngineError::MissingKey,
-      "auth" => EngineError::Auth,
-      "microphone" => EngineError::Microphone,
-      "network" => EngineError::Network,
-      "lost" => EngineError::Lost,
-      other => EngineError::Provider(other.chars().take(40).collect()),
-    }),
-  };
-  session.send(Input::Engine(id, ev)).await;
-  Ok(())
-}
-
 #[tauri::command]
 async fn set_hotkey(app: AppHandle, combo: String) -> Result<(), String> {
   hotkey::set_hotkey(&app, &combo)
@@ -144,24 +109,6 @@ fn get_autostart(app: AppHandle) -> Result<bool, String> {
   app.autolaunch().is_enabled().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-async fn set_behavior(app: AppHandle, patch: BehaviorPatch) -> Result<BehaviorPrefs, String> {
-  let mut prefs = settings::load_behavior(&app);
-  patch.apply(&mut prefs);
-  settings::save_behavior(&app, &prefs)?;
-  tracing::info!(?prefs, "behavior saved");
-  Ok(prefs)
-}
-
-#[tauri::command]
-async fn get_behavior(app: AppHandle) -> Result<BehaviorPrefs, String> {
-  let mut prefs = settings::load_behavior(&app);
-  if let Ok(os_enabled) = app.autolaunch().is_enabled() {
-    prefs.autostart = os_enabled;
-  }
-  Ok(prefs)
-}
-
 /// Frontend diagnostics. Messages must be content-free; they are length-capped here.
 #[tauri::command]
 fn log_to_terminal(message: String) {
@@ -170,7 +117,7 @@ fn log_to_terminal(message: String) {
 }
 
 fn show_main_window(app: &AppHandle) {
-  if let Some(w) = app.get_webview_window("settings") {
+  if let Some(w) = app.get_webview_window("main") {
     let _ = w.unminimize();
     let _ = w.show();
     let _ = w.set_focus();
@@ -227,7 +174,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
     .plugin(tauri_plugin_store::Builder::default().build())
     .plugin(tauri_plugin_autostart::init(
       tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-      None,
+      Some(vec!["--hidden"]),
     ))
     .plugin(hotkey::plugin())
     .plugin(tauri_plugin_clipboard_manager::init())
@@ -241,10 +188,14 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       }
       tracing::info!(version = %app.package_info().version, "Dictation HUD starting");
       app.manage(LastTranscript::default());
+      app.manage(services::Services::init(app.handle()));
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
       app.manage(session);
-      if let Some(s) = app.get_webview_window("settings") {
-        let _ = s.hide();
+      // Launched at login: stay in the tray. Otherwise open the main window.
+      if std::env::args().any(|a| a == "--hidden") {
+        tracing::info!("started hidden (login launch)");
+      } else {
+        show_main_window(app.handle());
       }
       flowbar::hide(app.handle());
       build_tray(app)?;
@@ -254,7 +205,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
     .on_window_event(|window, event| {
       // Closing the main window hides it; only tray Exit quits.
       if let WindowEvent::CloseRequested { api, .. } = event {
-        if window.label() == "settings" {
+        if window.label() == "main" {
           api.prevent_close();
           let _ = window.hide();
         }
@@ -263,29 +214,26 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
     .invoke_handler(tauri::generate_handler![
       session_intent,
       session_snapshot,
-      engine_event,
       set_hotkey,
       get_hotkey,
       set_autostart,
       get_autostart,
-      set_behavior,
-      get_behavior,
       log_to_terminal,
-      commands::save_keys_secure,
-      commands::get_keys_secure,
-      commands::set_model,
-      commands::get_model,
-      commands::set_megallm_model,
-      commands::get_megallm_model,
-      commands::set_language,
-      commands::get_language,
-      commands::test_openrouter,
-      commands::test_deepgram,
-      commands::test_megallm,
-      commands::test_elevenlabs,
-      commands::list_megallm_models,
-      commands::create_elevenlabs_token,
-      commands::runtime_keys,
+      commands::get_settings,
+      commands::update_settings,
+      commands::providers_overview,
+      commands::set_provider_key,
+      commands::clear_provider_key,
+      commands::test_provider,
+      commands::list_refine_models,
+      commands::elevenlabs_pool_view,
+      commands::elevenlabs_pool_add,
+      commands::elevenlabs_pool_remove,
+      commands::elevenlabs_pool_clear,
+      commands::elevenlabs_pool_set_multi,
+      commands::elevenlabs_pool_refresh,
+      commands::elevenlabs_pool_watch,
+      commands::audio_devices,
     ])
     .run(context)
 }

@@ -32,6 +32,8 @@ pub enum Trigger {
   Tray,
   FlowBar,
   App,
+  /// The engine itself, e.g. the microphone disappeared.
+  System,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

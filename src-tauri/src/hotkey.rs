@@ -23,9 +23,45 @@ fn accept_press(now: Instant) -> bool {
   accept
 }
 
+/// The shortcut swallows its main key, so the focused app sees Alt (or Win) pressed and
+/// released with nothing in between. Windows treats that as "open the menu bar" (Alt) or
+/// "open Start" (Win), which steals keyboard focus from the text field and breaks the later
+/// paste. Injecting an unassigned virtual key while the modifier is still down cancels that,
+/// the same "menu mask key" technique AutoHotkey uses.
+#[cfg(windows)]
+fn mask_modifier_release() {
+  use windows::Win32::UI::Input::KeyboardAndMouse::{
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+  };
+  const VK_UNASSIGNED: VIRTUAL_KEY = VIRTUAL_KEY(0xE8);
+  let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
+    r#type: INPUT_KEYBOARD,
+    Anonymous: INPUT_0 {
+      ki: KEYBDINPUT {
+        wVk: VK_UNASSIGNED,
+        wScan: 0,
+        dwFlags: flags,
+        time: 0,
+        dwExtraInfo: 0,
+      },
+    },
+  };
+  let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
+  let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+  tracing::debug!(sent, "modifier release masked");
+}
+
+#[cfg(not(windows))]
+fn mask_modifier_release() {}
+
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
   tauri_plugin_global_shortcut::Builder::new()
-    .with_handler(|app, _shortcut, event| {
+    .with_handler(|app, shortcut, event| {
+      use tauri_plugin_global_shortcut::Modifiers;
+      tracing::debug!(state = ?event.state(), mods = ?shortcut.mods, "shortcut event");
+      if event.state() == ShortcutState::Pressed && shortcut.mods.intersects(Modifiers::ALT | Modifiers::SUPER) {
+        mask_modifier_release();
+      }
       // The OS reports both press and release; only a press is an intent.
       if event.state() == ShortcutState::Pressed && accept_press(Instant::now()) {
         if let Some(session) = app.try_state::<SessionHandle>() {

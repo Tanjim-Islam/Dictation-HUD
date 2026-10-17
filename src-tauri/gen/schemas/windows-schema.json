@@ -177,6 +177,270 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the audio_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-devices",
+          "markdownDescription": "Enables the audio_devices command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-provider-key",
+          "markdownDescription": "Enables the clear_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-add",
+          "markdownDescription": "Enables the elevenlabs_pool_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-clear",
+          "markdownDescription": "Enables the elevenlabs_pool_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-refresh",
+          "markdownDescription": "Enables the elevenlabs_pool_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-remove",
+          "markdownDescription": "Enables the elevenlabs_pool_remove command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_set_multi command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-set-multi",
+          "markdownDescription": "Enables the elevenlabs_pool_set_multi command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-view",
+          "markdownDescription": "Enables the elevenlabs_pool_view command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_watch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-watch",
+          "markdownDescription": "Enables the elevenlabs_pool_watch command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-autostart",
+          "markdownDescription": "Enables the get_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-hotkey",
+          "markdownDescription": "Enables the get_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-settings",
+          "markdownDescription": "Enables the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_refine_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-refine-models",
+          "markdownDescription": "Enables the list_refine_models command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the log_to_terminal command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-log-to-terminal",
+          "markdownDescription": "Enables the log_to_terminal command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the providers_overview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-providers-overview",
+          "markdownDescription": "Enables the providers_overview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the session_intent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-session-intent",
+          "markdownDescription": "Enables the session_intent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the session_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-session-snapshot",
+          "markdownDescription": "Enables the session_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-autostart",
+          "markdownDescription": "Enables the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-hotkey",
+          "markdownDescription": "Enables the set_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-provider-key",
+          "markdownDescription": "Enables the set_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the test_provider command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-test-provider",
+          "markdownDescription": "Enables the test_provider command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-settings",
+          "markdownDescription": "Enables the update_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-devices",
+          "markdownDescription": "Denies the audio_devices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-provider-key",
+          "markdownDescription": "Denies the clear_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-add",
+          "markdownDescription": "Denies the elevenlabs_pool_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-clear",
+          "markdownDescription": "Denies the elevenlabs_pool_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-refresh",
+          "markdownDescription": "Denies the elevenlabs_pool_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-remove",
+          "markdownDescription": "Denies the elevenlabs_pool_remove command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_set_multi command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-set-multi",
+          "markdownDescription": "Denies the elevenlabs_pool_set_multi command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-view",
+          "markdownDescription": "Denies the elevenlabs_pool_view command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_watch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-watch",
+          "markdownDescription": "Denies the elevenlabs_pool_watch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-autostart",
+          "markdownDescription": "Denies the get_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-hotkey",
+          "markdownDescription": "Denies the get_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-settings",
+          "markdownDescription": "Denies the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_refine_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-refine-models",
+          "markdownDescription": "Denies the list_refine_models command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the log_to_terminal command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-log-to-terminal",
+          "markdownDescription": "Denies the log_to_terminal command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the providers_overview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-providers-overview",
+          "markdownDescription": "Denies the providers_overview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the session_intent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-session-intent",
+          "markdownDescription": "Denies the session_intent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the session_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-session-snapshot",
+          "markdownDescription": "Denies the session_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-autostart",
+          "markdownDescription": "Denies the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-hotkey",
+          "markdownDescription": "Denies the set_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-provider-key",
+          "markdownDescription": "Denies the set_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the test_provider command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-test-provider",
+          "markdownDescription": "Denies the test_provider command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-settings",
+          "markdownDescription": "Denies the update_settings command without any pre-configured scope."
+        },
+        {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
           "type": "string",
           "const": "autostart:default",

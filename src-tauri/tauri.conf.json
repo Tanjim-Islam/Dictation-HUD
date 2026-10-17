@@ -21,14 +21,17 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "label": "settings",
-        "title": "Dictation HUD Settings",
-        "hiddenTitle": true,
+        "label": "main",
+        "title": "Dictation HUD",
+        "width": 1334,
+        "height": 841,
+        "minWidth": 960,
+        "minHeight": 620,
+        "center": true,
         "decorations": false,
         "visible": false,
-        "width": 1120,
-        "height": 720,
-        "center": true
+        "resizable": true,
+        "shadow": true
       },
       {
         "label": "hud",

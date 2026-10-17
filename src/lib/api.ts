@@ -1,0 +1,106 @@
+// Typed wrappers for backend commands and events. The backend never returns secrets.
+import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
+export type KeySource = 'saved' | 'dev_env' | 'none';
+
+export type Settings = {
+  version: number;
+  auto_paste: boolean;
+  autostart: boolean;
+  stt_provider: string;
+  deepgram_model: string;
+  elevenlabs_model: string;
+  language: string;
+  input_device: string | null;
+  echo_cancellation: boolean;
+  noise_suppression: boolean;
+  ai_refine: boolean;
+  ai_provider: string;
+  openrouter_model: string;
+  megallm_model: string;
+};
+
+export type SettingsPatch = Partial<Omit<Settings, 'version' | 'autostart' | 'input_device'>> & { input_device?: string };
+
+export type ModelInfo = { id: string; name: string; languages: string[]; keyterms: boolean };
+
+export type SttProvider = {
+  id: string;
+  name: string;
+  models: ModelInfo[];
+  default_model: string;
+  multi_key: boolean;
+  configured: boolean;
+  key_source: KeySource;
+};
+
+export type RefineProvider = { id: string; name: string; configured: boolean; key_source: KeySource };
+
+export type ProvidersOverview = { stt: SttProvider[]; refine: RefineProvider[] };
+
+export type KeyStatus = 'unknown' | 'usable' | 'low_credit' | 'invalid' | 'cooldown' | 'error' | 'no_credit_access';
+
+export type PoolKey = {
+  id: string;
+  label: string;
+  status: KeyStatus;
+  remaining: number | null;
+  limit: number | null;
+  last_checked_ms: number | null;
+  last_error: string | null;
+  active: boolean;
+};
+
+export type PoolView = {
+  multi: boolean;
+  keys: PoolKey[];
+  total_remaining: number;
+  total_limit: number;
+  configured: boolean;
+  using_dev_key: boolean;
+  last_used_id: string | null;
+};
+
+export type TestResult = { ok: boolean; message: string };
+export type AudioDevice = { id: string; name: string; is_default: boolean };
+
+// Lets the UI run in a plain browser with a mocked backend during development.
+type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+let invokeImpl: InvokeFn = tauriInvoke;
+export function setInvokeImpl(fn: InvokeFn) {
+  invokeImpl = fn;
+}
+const invoke = <T>(cmd: string, args?: Record<string, unknown>) => invokeImpl<T>(cmd, args);
+
+export const api = {
+  getSettings: () => invoke<Settings>('get_settings'),
+  updateSettings: (patch: SettingsPatch) => invoke<Settings>('update_settings', { patch }),
+  providersOverview: () => invoke<ProvidersOverview>('providers_overview'),
+  setProviderKey: (provider: string, secret: string) => invoke<void>('set_provider_key', { provider, secret }),
+  clearProviderKey: (provider: string) => invoke<void>('clear_provider_key', { provider }),
+  testProvider: (provider: string) => invoke<TestResult>('test_provider', { provider }),
+  listRefineModels: (provider: string) => invoke<string[]>('list_refine_models', { provider }),
+  pool: {
+    view: () => invoke<PoolView>('elevenlabs_pool_view'),
+    add: (secret: string) => invoke<PoolView>('elevenlabs_pool_add', { secret }),
+    remove: (id: string) => invoke<PoolView>('elevenlabs_pool_remove', { id }),
+    clear: () => invoke<PoolView>('elevenlabs_pool_clear'),
+    setMulti: (multi: boolean) => invoke<PoolView>('elevenlabs_pool_set_multi', { multi }),
+    refresh: () => invoke<PoolView>('elevenlabs_pool_refresh'),
+    watch: (active: boolean) => invoke<void>('elevenlabs_pool_watch', { active }),
+  },
+  audioDevices: () => invoke<AudioDevice[]>('audio_devices'),
+  getHotkey: () => invoke<string>('get_hotkey'),
+  setHotkey: (combo: string) => invoke<void>('set_hotkey', { combo }),
+  setAutostart: (enabled: boolean) => invoke<void>('set_autostart', { enabled }),
+};
+
+export function onPoolChange(cb: (v: PoolView) => void): Promise<UnlistenFn> {
+  if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
+  return listen<PoolView>('elevenlabs://pool', (e) => cb(e.payload));
+}
+
+export function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
