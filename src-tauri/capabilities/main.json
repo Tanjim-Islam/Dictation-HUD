@@ -38,6 +38,16 @@
     "allow-elevenlabs-pool-refresh",
     "allow-elevenlabs-pool-watch",
     "allow-audio-devices",
-    "allow-history-recent"
+    "allow-history-list",
+    "allow-history-detail",
+    "allow-history-audio",
+    "allow-history-copy",
+    "allow-history-retry",
+    "allow-history-recover",
+    "allow-history-retry-refinement",
+    "allow-history-export-wav",
+    "allow-history-show-export",
+    "allow-history-delete",
+    "allow-history-storage"
   ]
 }

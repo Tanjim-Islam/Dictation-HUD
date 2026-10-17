@@ -10,6 +10,7 @@ pub mod elevenlabs;
 pub mod elevenlabs_pool;
 pub mod languages;
 pub mod mock;
+pub mod replay;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

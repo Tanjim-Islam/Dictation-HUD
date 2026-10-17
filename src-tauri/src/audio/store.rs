@@ -71,6 +71,42 @@ impl RecordingsDir {
     }
   }
 
+  /// Deletes a session's recording files and marks its audio row deleted. Only files derived
+  /// from the validated id, or the stored path when it is inside the root, are removed.
+  /// Returns the bytes freed.
+  pub fn remove(&self, db: &Db, id: &str) -> std::io::Result<u64> {
+    let (Some(staging), Some(archive)) = (self.staging_path(id), self.archive_path(id)) else {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        "invalid session id",
+      ));
+    };
+    let mut paths = vec![archive, staging];
+    if let Ok(Some(row)) = db.audio_for(id) {
+      let stored = PathBuf::from(&row.path);
+      if !paths.contains(&stored) {
+        paths.push(stored);
+      }
+    }
+    let mut freed = 0;
+    for p in paths {
+      if !p.exists() {
+        continue;
+      }
+      if !self.contains(&p) {
+        tracing::warn!(
+          session = id,
+          "refusing to delete a recording path outside the recordings folder"
+        );
+        continue;
+      }
+      freed += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+      std::fs::remove_file(&p)?;
+    }
+    let _ = db.audio_deleted(id);
+    Ok(freed)
+  }
+
   /// Startup sweep: every staging file left behind (crash, kill, power loss) is encoded and
   /// attached to its session, creating a recovered session row if none exists. Returns the
   /// number of recordings recovered.
@@ -153,6 +189,29 @@ mod tests {
         .join(outside.file_name().unwrap())
     ));
     assert!(!d.contains(&r), "the root itself is never a deletable item");
+    let _ = std::fs::remove_file(outside);
+    let _ = std::fs::remove_dir_all(r);
+  }
+
+  #[test]
+  fn remove_deletes_only_inside_root() {
+    let r = root();
+    let d = RecordingsDir::new(&r);
+    let db = Db::open_in_memory().unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    db.create_recovered_session(&id, 1).unwrap();
+    std::fs::create_dir_all(r.join("archive")).unwrap();
+    let archive = d.archive_path(&id).unwrap();
+    std::fs::write(&archive, b"opus").unwrap();
+    // A tampered row pointing outside the recordings folder must not delete that file.
+    let outside = std::env::temp_dir().join(format!("dh-keep-{}", uuid::Uuid::new_v4()));
+    std::fs::write(&outside, b"important").unwrap();
+    db.audio_encoded(&id, &outside.to_string_lossy(), 4, 1).unwrap();
+    assert_eq!(d.remove(&db, &id).unwrap(), 4);
+    assert!(!archive.exists());
+    assert!(outside.exists(), "file outside the root survives");
+    assert_eq!(db.audio_for(&id).unwrap().unwrap().state, "deleted");
+    assert!(d.remove(&db, "../../etc").is_err());
     let _ = std::fs::remove_file(outside);
     let _ = std::fs::remove_dir_all(r);
   }

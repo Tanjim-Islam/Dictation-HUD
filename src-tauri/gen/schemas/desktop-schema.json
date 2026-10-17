@@ -249,10 +249,76 @@
           "markdownDescription": "Enables the get_settings command without any pre-configured scope."
         },
         {
+          "description": "Enables the history_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-audio",
+          "markdownDescription": "Enables the history_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_copy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-copy",
+          "markdownDescription": "Enables the history_copy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-delete",
+          "markdownDescription": "Enables the history_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-detail",
+          "markdownDescription": "Enables the history_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_export_wav command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-export-wav",
+          "markdownDescription": "Enables the history_export_wav command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-list",
+          "markdownDescription": "Enables the history_list command without any pre-configured scope."
+        },
+        {
           "description": "Enables the history_recent command without any pre-configured scope.",
           "type": "string",
           "const": "allow-history-recent",
           "markdownDescription": "Enables the history_recent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_recover command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-recover",
+          "markdownDescription": "Enables the history_recover command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_retry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-retry",
+          "markdownDescription": "Enables the history_retry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_retry_refinement command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-retry-refinement",
+          "markdownDescription": "Enables the history_retry_refinement command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_show_export command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-show-export",
+          "markdownDescription": "Enables the history_show_export command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_storage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-storage",
+          "markdownDescription": "Enables the history_storage command without any pre-configured scope."
         },
         {
           "description": "Enables the list_refine_models command without any pre-configured scope.",
@@ -387,10 +453,76 @@
           "markdownDescription": "Denies the get_settings command without any pre-configured scope."
         },
         {
+          "description": "Denies the history_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-audio",
+          "markdownDescription": "Denies the history_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_copy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-copy",
+          "markdownDescription": "Denies the history_copy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-delete",
+          "markdownDescription": "Denies the history_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-detail",
+          "markdownDescription": "Denies the history_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_export_wav command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-export-wav",
+          "markdownDescription": "Denies the history_export_wav command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-list",
+          "markdownDescription": "Denies the history_list command without any pre-configured scope."
+        },
+        {
           "description": "Denies the history_recent command without any pre-configured scope.",
           "type": "string",
           "const": "deny-history-recent",
           "markdownDescription": "Denies the history_recent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_recover command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-recover",
+          "markdownDescription": "Denies the history_recover command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_retry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-retry",
+          "markdownDescription": "Denies the history_retry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_retry_refinement command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-retry-refinement",
+          "markdownDescription": "Denies the history_retry_refinement command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_show_export command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-show-export",
+          "markdownDescription": "Denies the history_show_export command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_storage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-storage",
+          "markdownDescription": "Denies the history_storage command without any pre-configured scope."
         },
         {
           "description": "Denies the list_refine_models command without any pre-configured scope.",

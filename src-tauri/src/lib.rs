@@ -6,6 +6,7 @@ pub mod db;
 pub mod delivery;
 pub mod engine;
 pub mod flowbar;
+pub mod history;
 pub mod hotkey;
 pub mod logging;
 pub mod prompt;
@@ -213,6 +214,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       }
       app.manage(services::Services::init(app.handle()));
       app.manage(app_host::CopyReasons::default());
+      app.manage(history::Busy::default());
+      history::start_retention(app.handle());
       target::start_foreground_tracker();
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
       app.manage(session);
@@ -259,7 +262,17 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       commands::elevenlabs_pool_refresh,
       commands::elevenlabs_pool_watch,
       commands::audio_devices,
-      commands::history_recent,
+      history::history_list,
+      history::history_detail,
+      history::history_audio,
+      history::history_copy,
+      history::history_retry,
+      history::history_recover,
+      history::history_retry_refinement,
+      history::history_export_wav,
+      history::history_show_export,
+      history::history_delete,
+      history::history_storage,
     ])
     .run(context)
 }

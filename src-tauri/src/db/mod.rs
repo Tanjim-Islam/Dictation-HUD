@@ -4,6 +4,7 @@
 //! inside audio callbacks. Schema changes are ordered migrations tracked by `user_version`.
 
 pub mod audio;
+pub mod history;
 pub mod sessions;
 
 use std::path::Path;
@@ -81,6 +82,11 @@ const MIGRATIONS: &[&str] = &[
   // v3: why delivery copied instead of pasting.
   r#"
   ALTER TABLE sessions ADD COLUMN delivery_reason TEXT;
+  "#,
+  // v4: retry lineage between attempts; what a recovered session was before recovery.
+  r#"
+  ALTER TABLE attempts ADD COLUMN parent_id INTEGER REFERENCES attempts(id) ON DELETE SET NULL;
+  ALTER TABLE sessions ADD COLUMN recovered_from TEXT;
   "#,
 ];
 

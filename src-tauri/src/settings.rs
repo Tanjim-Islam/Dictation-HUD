@@ -35,7 +35,13 @@ pub struct Settings {
   pub ai_provider: String,
   pub openrouter_model: String,
   pub megallm_model: String,
+  // History
+  /// Days to keep local recordings (0 = keep forever). Transcripts are always kept.
+  pub audio_retention_days: u32,
 }
+
+/// Longest finite retention offered.
+pub const MAX_RETENTION_DAYS: u32 = 3_650;
 
 /// Kept for call sites written before the rename.
 pub type BehaviorPrefs = Settings;
@@ -57,6 +63,7 @@ impl Default for Settings {
       ai_provider: "openrouter".into(),
       openrouter_model: DEFAULT_OPENROUTER_MODEL.into(),
       megallm_model: DEFAULT_MEGALLM_MODEL.into(),
+      audio_retention_days: 14,
     }
   }
 }
@@ -88,6 +95,7 @@ impl Settings {
     if self.input_device.as_deref().is_some_and(|d| d.is_empty()) {
       self.input_device = None;
     }
+    self.audio_retention_days = self.audio_retention_days.min(MAX_RETENTION_DAYS);
     self.version = SETTINGS_VERSION;
   }
 
@@ -115,6 +123,7 @@ pub struct SettingsPatch {
   pub ai_provider: Option<String>,
   pub openrouter_model: Option<String>,
   pub megallm_model: Option<String>,
+  pub audio_retention_days: Option<u32>,
 }
 
 pub type BehaviorPatch = SettingsPatch;
@@ -138,7 +147,8 @@ impl SettingsPatch {
       ai_refine,
       ai_provider,
       openrouter_model,
-      megallm_model
+      megallm_model,
+      audio_retention_days
     );
     f
   }
@@ -147,7 +157,13 @@ impl SettingsPatch {
     macro_rules! set {
       ($($f:ident),*) => { $( if let Some(v) = self.$f { s.$f = v; } )* };
     }
-    set!(auto_paste, echo_cancellation, noise_suppression, ai_refine);
+    set!(
+      auto_paste,
+      echo_cancellation,
+      noise_suppression,
+      ai_refine,
+      audio_retention_days
+    );
     if let Some(v) = self.stt_provider {
       s.stt_provider = v.to_lowercase();
     }
@@ -311,5 +327,19 @@ mod tests {
     assert_eq!(s.input_device, None);
     assert_eq!(s.language, "bn");
     assert_eq!(s.stt_model(), "scribe_v2_realtime");
+  }
+
+  #[test]
+  fn retention_defaults_to_14_days_and_is_bounded() {
+    assert_eq!(Settings::default().audio_retention_days, 14);
+    let s = Settings::from_stored(serde_json::json!({ "audio_retention_days": 999_999 }));
+    assert_eq!(s.audio_retention_days, MAX_RETENTION_DAYS);
+    let mut s = Settings::default();
+    SettingsPatch {
+      audio_retention_days: Some(0),
+      ..Default::default()
+    }
+    .apply(&mut s);
+    assert_eq!(s.audio_retention_days, 0, "0 keeps recordings forever");
   }
 }

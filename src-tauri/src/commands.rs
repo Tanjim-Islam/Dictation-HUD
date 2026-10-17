@@ -43,6 +43,9 @@ pub async fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<Set
   patch.apply(&mut s);
   settings::save(&app, &s)?;
   let _ = app.emit(SETTINGS_EVENT, &s);
+  if fields.contains("audio_retention_days") {
+    crate::history::sweep_soon(&app);
+  }
   tracing::info!(changed = %fields, stt = %s.stt_provider, model = %s.stt_model(), language = %s.language, ai_refine = s.ai_refine, "settings updated");
   Ok(s)
 }
@@ -316,15 +319,5 @@ pub fn elevenlabs_pool_watch(services: State<'_, Services>, active: bool) {
 pub async fn audio_devices() -> Result<Vec<DeviceInfo>, String> {
   tauri::async_runtime::spawn_blocking(audio::list_input_devices)
     .await
-    .map_err(|e| e.to_string())
-}
-
-/// Recent sessions, newest first. Full History UI arrives with the history phase.
-#[tauri::command]
-pub async fn history_recent(
-  db: State<'_, crate::db::Db>,
-  limit: Option<i64>,
-) -> Result<Vec<crate::db::sessions::SessionRow>, String> {
-  db.recent_sessions(limit.unwrap_or(50).clamp(1, 500))
     .map_err(|e| e.to_string())
 }

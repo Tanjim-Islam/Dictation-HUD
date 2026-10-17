@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger, Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/misc';
-import { api, errorMessage, type AudioDevice, type ProvidersOverview } from '@/lib/api';
+import { api, errorMessage, onHistoryChange, type AudioDevice, type ProvidersOverview, type StorageView } from '@/lib/api';
+import { bytesLabel } from '@/features/history/format';
 import { languageLabel, sortLanguages } from '@/lib/languages';
 import { useSettings } from './settings-context';
 import { Group, GroupLabel, Hint, Row, SectionTitle } from './parts';
@@ -314,6 +315,70 @@ export function RefinementSection() {
           </Row>
         </Group>
       </div>
+    </>
+  );
+}
+
+const RETENTION = [
+  { days: 1, label: '1 day' },
+  { days: 7, label: '7 days' },
+  { days: 14, label: '14 days' },
+  { days: 30, label: '30 days' },
+  { days: 90, label: '90 days' },
+  { days: 365, label: '1 year' },
+  { days: 0, label: 'Forever' },
+];
+
+export function HistorySection() {
+  const { settings, update } = useSettings();
+  const [storage, setStorage] = useState<StorageView | null>(null);
+  useEffect(() => {
+    const load = () => api.history.storage().then(setStorage).catch(() => {});
+    load();
+    const un = onHistoryChange(load);
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+  if (!settings) return <Spinner />;
+  const days = settings.audio_retention_days;
+  const options = RETENTION.some((r) => r.days === days) ? RETENTION : [...RETENTION, { days, label: `${days} days` }];
+  return (
+    <>
+      <SectionTitle>History</SectionTitle>
+      <Group>
+        <Row
+          title="Keep recordings"
+          description="Recordings let you replay a dictation or retry its transcript. Older recordings are deleted automatically; transcripts are always kept."
+          control={
+            <Select value={String(days)} onValueChange={(v) => update({ audio_retention_days: Number(v) })}>
+              <SelectTrigger className="w-[150px]" aria-label="Keep recordings">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((r) => (
+                  <SelectItem key={r.days} value={String(r.days)}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+        />
+      </Group>
+      <GroupLabel>Storage</GroupLabel>
+      <Group>
+        <Row title="Transcripts" control={<span className="text-[14px] tabular-nums text-ink-muted">{storage ? storage.sessions.toLocaleString() : '–'}</span>} />
+        <Row
+          title="Recordings"
+          description="Stored on this computer only, compressed with Opus."
+          control={
+            <span className="text-[14px] tabular-nums text-ink-muted">
+              {storage ? `${storage.audio_files.toLocaleString()} files · ${bytesLabel(storage.audio_bytes)}` : '–'}
+            </span>
+          }
+        />
+      </Group>
     </>
   );
 }

@@ -1,6 +1,6 @@
 // Development-only mock of backend commands, used when the UI runs in a plain browser.
 // Lets layout and interaction be inspected without Tauri. Never bundled in production paths.
-import { setInvokeImpl, type PoolView, type ProvidersOverview, type Settings } from '@/lib/api';
+import { setInvokeImpl, type HistoryItem, type HistoryQuery, type PoolView, type ProvidersOverview, type Settings } from '@/lib/api';
 
 const nova3 = ['multi', 'en', 'en-US', 'en-GB', 'bn', 'hi', 'es', 'fr', 'de', 'ja', 'zh-CN', 'ar', 'pt', 'ru', 'it'];
 const settings: Settings = {
@@ -18,6 +18,7 @@ const settings: Settings = {
   ai_provider: 'openrouter',
   openrouter_model: 'dots-studio/dots-3-note-preview:free',
   megallm_model: 'gpt-4o-mini',
+  audio_retention_days: 14,
 };
 
 let pool: PoolView = {
@@ -52,6 +53,61 @@ const overview = (): ProvidersOverview => ({
     { id: 'megallm', name: 'MegaLLM', configured: false, key_source: 'none' },
   ],
 });
+
+const HOUR = 3_600_000;
+const base = (i: number, over: Partial<HistoryItem>): HistoryItem => ({
+  id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+  created_at: Date.now() - i * 2.7 * HOUR,
+  ended_at: null,
+  trigger: 'hotkey',
+  status: 'completed',
+  failure: null,
+  provider: 'deepgram',
+  model: 'nova-3',
+  language: 'en',
+  raw_text: null,
+  formatted_text: null,
+  final_text: null,
+  refine_status: 'ok',
+  delivery_status: 'pasted',
+  delivery_reason: null,
+  target_app: 'Notepad',
+  duration_ms: 6_400,
+  word_count: 12,
+  retry_of: null,
+  audio_state: 'encoded',
+  audio_ms: 6_400,
+  audio_bytes: 19_800,
+  recovered_from: null,
+  attempts: 1,
+  ...over,
+});
+const SAMPLES = [
+  'Please send the quarterly report to the whole team before Friday, and include the updated revenue chart.',
+  'Remind me to call the dentist tomorrow morning.',
+  'The new onboarding flow should ask for the workspace name first, then invite teammates, then pick a plan.',
+  'Let us move the standup to ten thirty.',
+  'Okay so the bug happens only when the window is minimized during processing.',
+];
+let history: HistoryItem[] = [
+  base(0, { final_text: SAMPLES[0], raw_text: 'please send the quarterly report to the whole team before friday and include the updated revenue chart', target_app: 'Slack' }),
+  base(1, { final_text: SAMPLES[1], raw_text: 'remind me to call the dentist tomorrow morning', delivery_status: 'copied', delivery_reason: 'switched_app' }),
+  base(2, { status: 'interrupted', failure: 'app_closed', raw_text: 'the new onboarding flow should ask for the workspace name first', refine_status: null, delivery_status: null }),
+  base(3, { status: 'failed', failure: 'network', refine_status: null, delivery_status: null, word_count: 0 }),
+  base(9, { final_text: SAMPLES[2], raw_text: SAMPLES[2], target_app: 'VS Code', audio_state: 'deleted', audio_ms: null, audio_bytes: 0 }),
+  base(10, { final_text: SAMPLES[3], raw_text: SAMPLES[3], recovered_from: 'interrupted', delivery_status: 'none', attempts: 2 }),
+  base(30, { final_text: SAMPLES[4], raw_text: SAMPLES[4], target_app: 'Chrome' }),
+  base(60, { status: 'no_speech', audio_state: null, refine_status: null, delivery_status: null }),
+];
+
+function listHistory(q: HistoryQuery) {
+  const term = q.search?.toLowerCase() ?? '';
+  return history
+    .filter((h) => h.created_at < (q.before ?? Infinity))
+    .filter((h) => (q.filter === 'needs_attention' ? h.status === 'interrupted' || h.status === 'failed' : q.filter === 'with_audio' ? h.audio_state === 'encoded' : true))
+    .filter((h) => !term || [h.final_text, h.raw_text, h.target_app].some((t) => t?.toLowerCase().includes(term)))
+    .slice(0, q.limit ?? 60);
+}
 
 const delay = <T>(v: T, ms = 120) => new Promise<T>((r) => setTimeout(() => r(structuredClone(v)), ms));
 
@@ -98,6 +154,29 @@ export function installMockBackend() {
         return delay(['dots-studio/dots-3-note-preview:free', 'google/gemini-2.5-flash-lite', 'openai/gpt-4o-mini', 'anthropic/claude-haiku-4.5'], 400) as Promise<T>;
       case 'test_provider':
         return delay({ ok: true, message: 'Key works' }, 500) as Promise<T>;
+      case 'history_list':
+        return delay(listHistory(args.query as HistoryQuery)) as Promise<T>;
+      case 'history_detail': {
+        const h = history.find((x) => x.id === args.id)!;
+        const attempts = [{ id: 1, kind: 'live', provider: h.provider, model: h.model, language: 'en', started_at: h.created_at, ended_at: h.created_at + 7000, status: h.status === 'failed' ? 'failed' : 'ok', error: h.failure, text: h.raw_text, parent_id: null as number | null }];
+        if (h.attempts > 1) attempts.push({ id: 2, kind: 'retry', provider: 'elevenlabs', model: 'scribe_v2_realtime', language: 'en', started_at: h.created_at + HOUR, ended_at: h.created_at + HOUR, status: 'ok', error: null, text: h.raw_text, parent_id: 1 });
+        return delay({ ...h, attempts }) as Promise<T>;
+      }
+      case 'history_retry':
+      case 'history_recover':
+      case 'history_retry_refinement': {
+        history = history.map((h) => (h.id === args.id ? { ...h, final_text: h.final_text ?? 'Recovered transcript text.', status: 'completed', recovered_from: h.status === 'completed' ? h.recovered_from : h.status } : h));
+        return delay(history.find((h) => h.id === args.id), 1200) as Promise<T>;
+      }
+      case 'history_delete':
+        history = args.audioOnly ? history.map((h) => (h.id === args.id ? { ...h, audio_state: 'deleted' } : h)) : history.filter((h) => h.id !== args.id);
+        return delay(undefined as T);
+      case 'history_export_wav':
+        return delay('C:\\Users\\me\\Downloads\\Dictation 00000000.wav') as Promise<T>;
+      case 'history_audio':
+        return Promise.reject(new Error('No audio in browser preview')) as Promise<T>;
+      case 'history_storage':
+        return delay({ sessions: history.length, audio_files: history.filter((h) => h.audio_state === 'encoded').length, audio_bytes: 98_400, retention_days: settings.audio_retention_days }) as Promise<T>;
       case 'session_snapshot':
         return delay({ session_id: null, phase: 'idle', error: null }) as Promise<T>;
       default:

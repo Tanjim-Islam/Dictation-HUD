@@ -24,7 +24,17 @@ fn main() {
     "elevenlabs_pool_refresh",
     "elevenlabs_pool_watch",
     "audio_devices",
-    "history_recent",
+    "history_list",
+    "history_detail",
+    "history_audio",
+    "history_copy",
+    "history_retry",
+    "history_recover",
+    "history_retry_refinement",
+    "history_export_wav",
+    "history_show_export",
+    "history_delete",
+    "history_storage",
   ];
   tauri_build::try_build(
     tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(commands)),

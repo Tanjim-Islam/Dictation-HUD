@@ -19,6 +19,8 @@ export type Settings = {
   ai_provider: string;
   openrouter_model: string;
   megallm_model: string;
+  /** Days to keep recordings; 0 keeps them forever. */
+  audio_retention_days: number;
 };
 
 export type SettingsPatch = Partial<Omit<Settings, 'version' | 'autostart' | 'input_device'>> & { input_device?: string };
@@ -62,6 +64,55 @@ export type PoolView = {
   last_used_id: string | null;
 };
 
+export type SessionStatus = 'in_progress' | 'completed' | 'cancelled' | 'failed' | 'no_speech' | 'interrupted';
+
+export type HistoryItem = {
+  id: string;
+  created_at: number;
+  ended_at: number | null;
+  trigger: string;
+  status: SessionStatus;
+  failure: string | null;
+  provider: string;
+  model: string;
+  language: string;
+  raw_text: string | null;
+  formatted_text: string | null;
+  final_text: string | null;
+  refine_status: string | null;
+  delivery_status: string | null;
+  delivery_reason: string | null;
+  target_app: string | null;
+  duration_ms: number | null;
+  word_count: number | null;
+  retry_of: string | null;
+  audio_state: 'staging' | 'encoded' | 'failed' | 'deleted' | null;
+  audio_ms: number | null;
+  audio_bytes: number | null;
+  recovered_from: string | null;
+  attempts: number;
+};
+
+export type HistoryFilter = 'all' | 'needs_attention' | 'with_audio';
+export type HistoryQuery = { search?: string; filter?: HistoryFilter; before?: number; limit?: number };
+
+export type AttemptRow = {
+  id: number;
+  kind: string;
+  provider: string;
+  model: string;
+  language: string;
+  started_at: number;
+  ended_at: number | null;
+  status: string;
+  error: string | null;
+  text: string | null;
+  parent_id: number | null;
+};
+
+export type HistoryDetail = HistoryItem & { attempts: AttemptRow[] };
+export type StorageView = { sessions: number; audio_files: number; audio_bytes: number; retention_days: number };
+
 export type TestResult = { ok: boolean; message: string };
 export type AudioDevice = { id: string; name: string; is_default: boolean };
 
@@ -90,6 +141,19 @@ export const api = {
     refresh: () => invoke<PoolView>('elevenlabs_pool_refresh'),
     watch: (active: boolean) => invoke<void>('elevenlabs_pool_watch', { active }),
   },
+  history: {
+    list: (query: HistoryQuery) => invoke<HistoryItem[]>('history_list', { query }),
+    detail: (id: string) => invoke<HistoryDetail>('history_detail', { id }),
+    audio: (id: string) => invoke<ArrayBuffer>('history_audio', { id }),
+    copy: (id: string) => invoke<void>('history_copy', { id }),
+    retry: (id: string) => invoke<HistoryItem>('history_retry', { id }),
+    recover: (id: string) => invoke<HistoryItem>('history_recover', { id }),
+    retryRefinement: (id: string) => invoke<HistoryItem>('history_retry_refinement', { id }),
+    exportWav: (id: string) => invoke<string>('history_export_wav', { id }),
+    showExport: (path: string) => invoke<void>('history_show_export', { path }),
+    remove: (id: string, audioOnly: boolean) => invoke<void>('history_delete', { id, audioOnly }),
+    storage: () => invoke<StorageView>('history_storage'),
+  },
   audioDevices: () => invoke<AudioDevice[]>('audio_devices'),
   getHotkey: () => invoke<string>('get_hotkey'),
   setHotkey: (combo: string) => invoke<void>('set_hotkey', { combo }),
@@ -99,6 +163,11 @@ export const api = {
 export function onPoolChange(cb: (v: PoolView) => void): Promise<UnlistenFn> {
   if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
   return listen<PoolView>('elevenlabs://pool', (e) => cb(e.payload));
+}
+
+export function onHistoryChange(cb: () => void): Promise<UnlistenFn> {
+  if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
+  return listen('history://changed', () => cb());
 }
 
 export function errorMessage(e: unknown) {

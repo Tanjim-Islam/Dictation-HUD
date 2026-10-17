@@ -6,19 +6,19 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsProvider } from '@/features/settings/SettingsContext';
 import { SettingsDialog, type SettingsSectionId } from '@/features/settings/SettingsDialog';
-import { HomePage } from '@/features/home/HomePage';
+import { HistoryPage } from '@/features/history/HistoryPage';
 import { transition } from '@/lib/motion';
 import { Sidebar, type NavItem } from './Sidebar';
 import { TitleBar } from './TitleBar';
 
-const NAV: NavItem[] = [{ id: 'home', label: 'History', icon: History }];
+const NAV: NavItem[] = [{ id: 'history', label: 'History', icon: History }];
 
 const PAGES: Record<string, () => React.ReactNode> = {
-  home: () => <HomePage />,
+  history: () => <HistoryPage />,
 };
 
 export function App() {
-  const [page, setPage] = useState('home');
+  const [page, setPage] = useState('history');
   const [sidebar, setSidebar] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [section, setSection] = useState<SettingsSectionId>('general');

@@ -363,12 +363,18 @@ pub struct ProcessOutput {
 /// Deterministic formatting, then optional AI refinement with deterministic fallback.
 /// `None` means there was no text.
 pub async fn process_text(app: &AppHandle, transcript: &str) -> Option<ProcessOutput> {
+  process_text_with(app, transcript, false).await
+}
+
+/// Like [`process_text`]; `force_refine` runs AI refinement even when it is turned off
+/// (History "Retry refinement").
+pub async fn process_text_with(app: &AppHandle, transcript: &str, force_refine: bool) -> Option<ProcessOutput> {
   let formatted = symbols::replace_symbols(transcript);
   if formatted.trim().is_empty() {
     return None;
   }
   let s = settings::load(app);
-  if !s.ai_refine {
+  if !s.ai_refine && !force_refine {
     return Some(ProcessOutput {
       final_text: formatted.clone(),
       formatted,
@@ -384,7 +390,12 @@ pub async fn process_text(app: &AppHandle, transcript: &str) -> Option<ProcessOu
     s.openrouter_model.clone()
   };
   let key = app.state::<Services>().refine_key(p);
-  let (final_text, refine_status) = match refine::refine(p, key, &model, &formatted).await {
+  let timeout = if force_refine {
+    refine::RETRY_TIMEOUT
+  } else {
+    refine::LIVE_TIMEOUT
+  };
+  let (final_text, refine_status) = match refine::refine(p, key, &model, &formatted, timeout).await {
     Ok(refined) => (refined, "ok"),
     Err(_) => (refine::basic_punctuation_cleanup(&formatted), "failed"),
   };

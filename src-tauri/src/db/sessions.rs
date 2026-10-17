@@ -72,10 +72,10 @@ pub struct SessionRow {
   pub retry_of: Option<String>,
 }
 
-const SESSION_COLS: &str = "id, created_at, ended_at, trigger, status, failure, provider, model, language, raw_text, \
+pub(super) const SESSION_COLS: &str = "id, created_at, ended_at, trigger, status, failure, provider, model, language, raw_text, \
    formatted_text, final_text, refine_status, delivery_status, target_app, duration_ms, word_count, retry_of, delivery_reason";
 
-fn map_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
+pub(super) fn map_session(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
   Ok(SessionRow {
     id: r.get(0)?,
     created_at: r.get(1)?,

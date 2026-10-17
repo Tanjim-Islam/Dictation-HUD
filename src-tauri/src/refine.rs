@@ -129,7 +129,13 @@ pub fn provider(id: &str) -> &'static RefineProvider {
   PROVIDERS.iter().find(|p| p.id == id).unwrap_or(&PROVIDERS[0])
 }
 
-async fn call_chat(p: &RefineProvider, key: &str, model: &str, text: &str) -> Result<String, RefineError> {
+async fn call_chat(
+  p: &RefineProvider,
+  key: &str,
+  model: &str,
+  text: &str,
+  timeout: Duration,
+) -> Result<String, RefineError> {
   let body = serde_json::json!({
     "model": model,
     "messages": [
@@ -138,7 +144,7 @@ async fn call_chat(p: &RefineProvider, key: &str, model: &str, text: &str) -> Re
     ]
   });
   let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(8))
+    .timeout(timeout)
     .build()
     .map_err(|_| RefineError::Network)?;
   let resp = client
@@ -157,12 +163,23 @@ async fn call_chat(p: &RefineProvider, key: &str, model: &str, text: &str) -> Re
   extract_completion_text(&text_body)
 }
 
+/// Live dictation waits at most this long before pasting the formatted text instead.
+pub const LIVE_TIMEOUT: Duration = Duration::from_secs(8);
+/// An explicit retry from History has no paste waiting on it.
+pub const RETRY_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Refines `text` with the given provider, key, and model. Returns the provider error on
 /// failure so the caller can fall back to deterministic text.
-pub async fn refine(p: &RefineProvider, key: Option<String>, model: &str, text: &str) -> Result<String, RefineError> {
+pub async fn refine(
+  p: &RefineProvider,
+  key: Option<String>,
+  model: &str,
+  text: &str,
+  timeout: Duration,
+) -> Result<String, RefineError> {
   let key = key.ok_or(RefineError::MissingKey)?;
   let started = std::time::Instant::now();
-  let result = call_chat(p, &key, model, text)
+  let result = call_chat(p, &key, model, text, timeout)
     .await
     .and_then(|r| validate_refined(&r, text));
   let ms = started.elapsed().as_millis() as u64;
