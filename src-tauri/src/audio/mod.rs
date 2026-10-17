@@ -3,6 +3,8 @@
 pub mod capture;
 pub mod dsp;
 pub mod levels;
+pub mod recording;
+pub mod store;
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use serde::Serialize;

@@ -4,11 +4,14 @@
 //! finalize, transcript stages before delivery, outcome at the end. A database error is logged
 //! and never blocks dictation.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::capture::CaptureConfig;
+use crate::audio::recording::RecordingWriter;
+use crate::audio::store::RecordingsDir;
 use crate::db::sessions::{self, NewSession, Processing};
 use crate::db::Db;
 use crate::engine::{self, EngineConfig, EngineHandle, EngineHooks, LevelEvent};
@@ -24,9 +27,31 @@ pub const LEVEL_EVENT: &str = "session://level";
 /// History changed (a session was created or finished).
 pub const HISTORY_EVENT: &str = "history://changed";
 
+type Recorders = Arc<Mutex<HashMap<SessionId, RecordingWriter>>>;
+
 pub struct TauriHost {
   app: AppHandle,
   engine: Mutex<Option<EngineHandle>>,
+  /// Open local recordings by session (normally zero or one).
+  recorders: Recorders,
+}
+
+/// Closes a session's recording (if any) and encodes it off the async runtime.
+fn close_recording(app: &AppHandle, recorders: &Recorders, id: SessionId) {
+  let Some(writer) = recorders.lock().unwrap().remove(&id) else {
+    return;
+  };
+  let app = app.clone();
+  tauri::async_runtime::spawn_blocking(move || {
+    let staged = writer.close();
+    if staged.write_errors > 0 {
+      tracing::error!(session = %id, errors = staged.write_errors, "recording had write errors");
+    }
+    let dir = app.state::<RecordingsDir>();
+    let db = app.state::<Db>();
+    let _ = dir.finalize(&db, &id.to_string());
+    let _ = app.emit(HISTORY_EVENT, ());
+  });
 }
 
 fn db_warn<T>(what: &str, r: rusqlite::Result<T>) -> Option<T> {
@@ -44,6 +69,7 @@ impl TauriHost {
     Self {
       app,
       engine: Mutex::new(None),
+      recorders: Arc::new(Mutex::new(HashMap::new())),
     }
   }
 
@@ -114,6 +140,9 @@ impl Host for TauriHost {
     };
     let level_app = self.app.clone();
     let end_app = self.app.clone();
+    let sink_app = self.app.clone();
+    let end_recorders = self.recorders.clone();
+    let sink_recorders = self.recorders.clone();
     let hooks = EngineHooks {
       levels: Arc::new(move |ev: LevelEvent| {
         let _ = level_app.emit_to("hud", LEVEL_EVENT, ev);
@@ -121,6 +150,30 @@ impl Host for TauriHost {
       on_capture_end: Arc::new(move |sid, stats| {
         let db = end_app.state::<Db>();
         db_warn("set_duration", db.set_duration(&sid.to_string(), stats.duration_ms()));
+        close_recording(&end_app, &end_recorders, sid);
+      }),
+      // Durable local recording starts with the first captured frame, before the provider.
+      frame_sinks: Arc::new(move |sid| {
+        let dir = sink_app.state::<RecordingsDir>();
+        let Some(path) = dir.staging_path(&sid.to_string()) else {
+          return Vec::new();
+        };
+        match RecordingWriter::create(&path) {
+          Ok(writer) => {
+            let db = sink_app.state::<Db>();
+            db_warn(
+              "audio_staging",
+              db.audio_staging(&sid.to_string(), &path.to_string_lossy()),
+            );
+            let sink = writer.sink();
+            sink_recorders.lock().unwrap().insert(sid, writer);
+            vec![sink]
+          }
+          Err(e) => {
+            tracing::error!(session = %sid, error = %e, "local recording unavailable; dictation continues without it");
+            Vec::new()
+          }
+        }
       }),
     };
     let services = self.app.state::<Services>();
@@ -218,6 +271,8 @@ impl Host for TauriHost {
         (sessions::status::FAILED, Some(failure.as_str()), None)
       }
     };
+    // Covers sessions whose capture never stopped normally (start failure, shutdown).
+    close_recording(&self.app, &self.recorders, id);
     let db = self.db();
     if !transcript.trim().is_empty() {
       db_warn("save_raw", db.save_raw(&sid, transcript));

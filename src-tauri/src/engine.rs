@@ -8,7 +8,7 @@ use serde::Serialize;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::audio::capture::{Capture, CaptureConfig, CaptureOutputs, CaptureStats};
+use crate::audio::capture::{Capture, CaptureConfig, CaptureOutputs, CaptureStats, FrameSink};
 use crate::audio::levels::{LevelFrame, LevelMeter};
 use crate::providers::{AudioMsg, Registry, StreamCtx, SttEvent};
 use crate::session::machine::{EngineError, EngineEvent, Input, SessionId, Trigger};
@@ -36,14 +36,19 @@ pub struct LevelEvent {
 
 pub type LevelEmitter = Arc<dyn Fn(LevelEvent) + Send + Sync>;
 pub type CaptureEndHook = Arc<dyn Fn(SessionId, &CaptureStats) + Send + Sync>;
+pub type SinkFactory = Arc<dyn Fn(SessionId) -> Vec<FrameSink> + Send + Sync>;
 
 /// Side channels from the engine to the host. Called off the session actor.
 #[derive(Clone)]
 pub struct EngineHooks {
   /// Display-rate microphone levels for the HUD.
   pub levels: LevelEmitter,
-  /// Capture stopped (finish, cancel, failure). Stats describe the captured audio.
+  /// Capture stopped (finish, cancel, failure). Stats describe the captured audio. All frame
+  /// sinks have been dropped (flushed) before this runs.
   pub on_capture_end: CaptureEndHook,
+  /// Extra consumers of every processed frame, created per session before capture starts
+  /// (the durable local recording).
+  pub frame_sinks: SinkFactory,
 }
 
 impl EngineHooks {
@@ -51,6 +56,7 @@ impl EngineHooks {
     Self {
       levels: Arc::new(|_| {}),
       on_capture_end: Arc::new(|_, _| {}),
+      frame_sinks: Arc::new(|_| Vec::new()),
     }
   }
 }
@@ -128,7 +134,7 @@ async fn run(
   let outputs = CaptureOutputs {
     provider: Some(audio_tx.clone()),
     levels: levels.clone(),
-    frame_sinks: Vec::new(),
+    frame_sinks: (hooks.frame_sinks)(id),
     on_device_lost: Box::new(move || {
       tracing::warn!("microphone disconnected; finishing dictation");
       lost_session.try_send(Input::Finish(Trigger::System));

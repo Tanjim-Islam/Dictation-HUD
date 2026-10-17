@@ -3,6 +3,7 @@
 //! One connection behind a mutex: writes are small (a handful per dictation) and never happen
 //! inside audio callbacks. Schema changes are ordered migrations tracked by `user_version`.
 
+pub mod audio;
 pub mod sessions;
 
 use std::path::Path;
@@ -61,6 +62,21 @@ const MIGRATIONS: &[&str] = &[
     text       TEXT NOT NULL,
     PRIMARY KEY (attempt_id, seq)
   );
+  "#,
+  // v2: local audio for each session (staging while recording, Ogg Opus after).
+  r#"
+  CREATE TABLE audio (
+    session_id  TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    state       TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    bytes       INTEGER,
+    duration_ms INTEGER,
+    codec       TEXT,
+    error       TEXT,
+    created_at  INTEGER NOT NULL,
+    encoded_at  INTEGER
+  );
+  CREATE INDEX audio_state ON audio(state);
   "#,
 ];
 

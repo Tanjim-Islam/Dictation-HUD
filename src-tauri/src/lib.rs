@@ -24,7 +24,7 @@ use serde::Deserialize;
 use tauri::{
   menu::{Menu, MenuItem},
   tray::TrayIconBuilder,
-  AppHandle, Manager, State, WindowEvent,
+  AppHandle, Emitter, Manager, State, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt as _;
 
@@ -194,7 +194,22 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
         Ok(n) => tracing::warn!(sessions = n, "reconciled sessions left in progress by a previous run"),
         Err(e) => tracing::warn!(error = %e, "reconcile failed"),
       }
+      let recordings = audio::store::RecordingsDir::new(data_dir.join("recordings"));
+      app.manage(recordings.clone());
       app.manage(db);
+      // Leftover raw recordings from a crash are encoded and attached in the background.
+      {
+        let handle = app.handle().clone();
+        let dir = recordings.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+          let db = handle.state::<db::Db>();
+          let n = dir.recover(&db);
+          if n > 0 {
+            tracing::warn!(recordings = n, "recovered recordings left by a previous run");
+            let _ = handle.emit(app_host::HISTORY_EVENT, ());
+          }
+        });
+      }
       app.manage(services::Services::init(app.handle()));
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
       app.manage(session);

@@ -39,10 +39,11 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings, String> {
 #[tauri::command]
 pub async fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<Settings, String> {
   let mut s = settings::load(&app);
+  let fields = patch.fields().join(",");
   patch.apply(&mut s);
   settings::save(&app, &s)?;
   let _ = app.emit(SETTINGS_EVENT, &s);
-  tracing::info!(stt = %s.stt_provider, model = %s.stt_model(), language = %s.language, ai_refine = s.ai_refine, "settings updated");
+  tracing::info!(changed = %fields, stt = %s.stt_provider, model = %s.stt_model(), language = %s.language, ai_refine = s.ai_refine, "settings updated");
   Ok(s)
 }
 

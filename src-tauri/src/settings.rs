@@ -120,6 +120,29 @@ pub struct SettingsPatch {
 pub type BehaviorPatch = SettingsPatch;
 
 impl SettingsPatch {
+  /// Names of the fields this patch sets (for diagnostics; no values).
+  pub fn fields(&self) -> Vec<&'static str> {
+    let mut f = Vec::new();
+    macro_rules! has {
+      ($($n:ident),*) => { $( if self.$n.is_some() { f.push(stringify!($n)); } )* };
+    }
+    has!(
+      auto_paste,
+      stt_provider,
+      deepgram_model,
+      elevenlabs_model,
+      language,
+      input_device,
+      echo_cancellation,
+      noise_suppression,
+      ai_refine,
+      ai_provider,
+      openrouter_model,
+      megallm_model
+    );
+    f
+  }
+
   pub fn apply(self, s: &mut Settings) {
     macro_rules! set {
       ($($f:ident),*) => { $( if let Some(v) = self.$f { s.$f = v; } )* };

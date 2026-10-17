@@ -364,6 +364,7 @@ impl Capture {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_dsp = stop.clone();
     let device_name = opened.name.clone();
+    let (aec, ns) = (cfg.echo_cancellation, cfg.noise_suppression);
     let stats = CaptureStats {
       device_name: opened.name.clone(),
       device_rate: opened.mic_rate,
@@ -447,7 +448,10 @@ impl Capture {
     let opened_in = started.elapsed();
     tracing::info!(
       ms = opened_in.as_millis() as u64,
+      device = %device_name,
       rate = opened.mic_rate,
+      echo_cancellation = aec,
+      noise_suppression = ns,
       echo_reference = opened.ref_rate.is_some(),
       "microphone open"
     );

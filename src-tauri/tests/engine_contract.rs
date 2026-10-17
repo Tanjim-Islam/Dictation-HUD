@@ -181,3 +181,101 @@ fn unknown_provider_and_unsupported_language_fail_cleanly() {
     wait_phase(&h, Phase::Error, 3).await;
   });
 }
+
+/// The durable recording gets every frame even when the provider dies mid-stream, and the
+/// capture-end hook runs after all sinks were flushed.
+#[test]
+fn provider_failure_still_records_audio() {
+  use dictation_hud::audio::capture::FrameSink;
+  use dictation_hud::engine::EngineHooks;
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  tauri::async_runtime::block_on(async {
+    let recorded = Arc::new(AtomicUsize::new(0));
+    let ended = Arc::new(AtomicUsize::new(0));
+    struct RecHost {
+      inner: Arc<TestHost>,
+      recorded: Arc<AtomicUsize>,
+      ended: Arc<AtomicUsize>,
+    }
+    impl Host for RecHost {
+      fn publish(&self, s: &Snapshot) {
+        self.inner.publish(s)
+      }
+      fn start_engine(&self, id: SessionId, session: &SessionHandle) {
+        let rec = self.recorded.clone();
+        let end = self.ended.clone();
+        let rec_at_end = self.recorded.clone();
+        let hooks = EngineHooks {
+          levels: Arc::new(|_| {}),
+          on_capture_end: Arc::new(move |_, stats| {
+            assert_eq!(
+              rec_at_end.load(Ordering::SeqCst) as u64,
+              stats.frames * 160,
+              "sinks flushed before hook"
+            );
+            end.fetch_add(1, Ordering::SeqCst);
+          }),
+          frame_sinks: Arc::new(move |_| {
+            let rec = rec.clone();
+            let sink: FrameSink = Box::new(move |f: &[i16]| {
+              rec.fetch_add(f.len(), Ordering::SeqCst);
+            });
+            vec![sink]
+          }),
+        };
+        let cfg = EngineConfig {
+          provider: "acme".into(),
+          model: "mock-1".into(),
+          language: "en".into(),
+          keyterms: vec![],
+          capture: CaptureConfig {
+            device_id: None,
+            echo_cancellation: false,
+            noise_suppression: false,
+            synthetic: Some(Arc::new(vec![500i16; 32_000])),
+          },
+        };
+        let h = engine::start(&self.inner.registry, cfg, id, session.clone(), hooks);
+        *self.inner.engine.lock().unwrap() = Some(h);
+      }
+      fn finish_engine(&self, id: SessionId) {
+        self.inner.finish_engine(id)
+      }
+      fn cancel_engine(&self, id: SessionId) {
+        self.inner.cancel_engine(id)
+      }
+      fn process(&self, id: SessionId, t: String, s: &SessionHandle) {
+        self.inner.process(id, t, s)
+      }
+      fn deliver(&self, id: SessionId, t: String, s: &SessionHandle) {
+        self.inner.deliver(id, t, s)
+      }
+      fn record(&self, id: SessionId, o: &Outcome, t: &str) {
+        self.inner.record(id, o, t)
+      }
+    }
+    let inner = TestHost::new(
+      registry_with(MockAdapter::new(
+        "acme",
+        MockBehavior::FailMidStream(ProviderError::Network),
+      )),
+      "acme",
+    );
+    let host = Arc::new(RecHost {
+      inner: inner.clone(),
+      recorded: recorded.clone(),
+      ended: ended.clone(),
+    });
+    let h = actor::spawn(host);
+    h.send(Input::Start(Trigger::Tray)).await;
+    wait_phase(&h, Phase::Error, 3).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(ended.load(Ordering::SeqCst), 1);
+    assert!(
+      recorded.load(Ordering::SeqCst) > 0,
+      "audio captured before the failure is kept"
+    );
+    assert!(matches!(inner.outcomes.lock().unwrap()[0], Outcome::Failed { .. }));
+  });
+}
