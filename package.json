@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
-    "test:providers": "node scripts/test-providers.mjs",
+    "check:versions": "node scripts/check-versions.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
