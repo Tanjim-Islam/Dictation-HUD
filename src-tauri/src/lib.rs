@@ -9,6 +9,7 @@ pub mod engine;
 pub mod flowbar;
 pub mod history;
 pub mod hotkey;
+pub mod learning;
 pub mod logging;
 pub mod prompt;
 pub mod providers;
@@ -274,6 +275,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       history::history_show_export,
       history::history_delete,
       history::history_storage,
+      history::insights,
       dictionary::dictionary_list,
       dictionary::dictionary_add,
       dictionary::dictionary_update,

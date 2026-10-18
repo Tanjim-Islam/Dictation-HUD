@@ -405,6 +405,42 @@ export function HistorySection() {
   );
 }
 
+export function PrivacySection() {
+  const { settings, update } = useSettings();
+  if (!settings) return <Spinner />;
+  return (
+    <>
+      <SectionTitle>Privacy</SectionTitle>
+      <Group>
+        <Row
+          title="Context awareness"
+          description="Give AI refinement the text just before your cursor so names and tone match. Read only while you dictate, never saved, and never from password or PIN fields."
+          control={<Switch aria-label="Context awareness" checked={settings.context_awareness} onCheckedChange={(v) => update({ context_awareness: v })} />}
+        />
+        <Row
+          title="Learn from my corrections"
+          description="When you fix a misheard word right after dictating, offer it for your dictionary. Password and PIN fields are never read."
+          control={
+            <Select value={settings.correction_learning} onValueChange={(v) => update({ correction_learning: v as typeof settings.correction_learning })}>
+              <SelectTrigger className="w-[170px]" aria-label="Learn from my corrections">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="suggest">Suggest</SelectItem>
+                <SelectItem value="auto">Add automatically</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+              </SelectContent>
+            </Select>
+          }
+        />
+      </Group>
+      <p className="mt-4 text-[13px] leading-5 text-ink-muted">
+        Transcripts, recordings, and your dictionary stay on this computer. Text is sent only to the speech provider and, when AI refinement is on, to the AI provider you chose.
+      </p>
+    </>
+  );
+}
+
 export function AboutSection() {
   const [version, setVersion] = useState('');
   useEffect(() => {

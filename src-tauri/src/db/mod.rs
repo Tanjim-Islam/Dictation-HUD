@@ -5,6 +5,7 @@
 
 pub mod audio;
 pub mod history;
+pub mod insights;
 pub mod lexicon;
 pub mod sessions;
 

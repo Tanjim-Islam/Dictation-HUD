@@ -4,8 +4,15 @@
 //! goes to whatever window happens to be in front later. Platform code lives in `windows.rs`;
 //! other platforms get conservative stubs (no target, so delivery copies to the clipboard).
 
+pub mod focus;
+#[cfg(windows)]
+mod uia;
 #[cfg(windows)]
 mod windows;
+
+pub use focus::{tab_changed, FocusSnapshot, TabPos};
+#[cfg(windows)]
+pub use uia::{focus_snapshot, focused_text, selected_tab, text_before_caret};
 
 use serde::Serialize;
 
@@ -115,6 +122,18 @@ mod stubs {
   }
   pub fn start_foreground_tracker() {}
   pub fn window_center(_: isize) -> Option<(i32, i32)> {
+    None
+  }
+  pub fn focus_snapshot(_: isize) -> Option<FocusSnapshot> {
+    None
+  }
+  pub fn selected_tab(_: isize) -> Option<TabPos> {
+    None
+  }
+  pub fn text_before_caret(_: usize) -> Option<String> {
+    None
+  }
+  pub fn focused_text(_: usize) -> Option<(Vec<i32>, String)> {
     None
   }
 }

@@ -118,6 +118,8 @@ pub struct Request<'a> {
   pub text: &'a str,
   /// Preferred spellings from the user's dictionary.
   pub vocabulary: &'a [String],
+  /// Text already in the field before the caret (context awareness). Never stored.
+  pub context: Option<&'a str>,
   pub timeout: Duration,
 }
 
@@ -126,7 +128,7 @@ async fn call_chat(p: &RefineProvider, key: &str, model: &str, req: &Request<'_>
   let body = serde_json::json!({
     "model": model,
     "messages": [
-      {"role": "system", "content": prompt::system_prompt_with(req.vocabulary, has_placeholders)},
+      {"role": "system", "content": prompt::system_prompt_with(req.vocabulary, has_placeholders, req.context)},
       {"role": "user", "content": req.text}
     ]
   });

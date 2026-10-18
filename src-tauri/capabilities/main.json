@@ -49,6 +49,7 @@
     "allow-history-show-export",
     "allow-history-delete",
     "allow-history-storage",
+    "allow-insights",
     "allow-dictionary-list",
     "allow-dictionary-add",
     "allow-dictionary-update",

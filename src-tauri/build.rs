@@ -35,6 +35,7 @@ fn main() {
     "history_show_export",
     "history_delete",
     "history_storage",
+    "insights",
     "dictionary_list",
     "dictionary_add",
     "dictionary_update",

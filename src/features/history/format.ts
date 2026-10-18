@@ -104,6 +104,7 @@ const COPY_REASONS: Record<string, string> = {
   elevated_target: 'Copied: the app runs as administrator',
   focus_failed: 'Copied: the window could not be focused',
   keystroke_failed: 'Copied: the paste keystroke was blocked',
+  tab_changed: 'Copied: you switched tabs',
 };
 
 export function deliveryLabel(item: HistoryItem) {

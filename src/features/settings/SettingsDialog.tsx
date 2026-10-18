@@ -2,19 +2,20 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import type { LucideIcon } from 'lucide-react';
-import { AudioLines, History, Info, Mic, SlidersHorizontal, Sparkles, X } from 'lucide-react';
+import { AudioLines, History, Info, Mic, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { transition } from '@/lib/motion';
 import { cn } from '@/lib/utils';
-import { AboutSection, AudioSection, GeneralSection, HistorySection, RefinementSection, SpeechSection } from './sections';
+import { AboutSection, AudioSection, GeneralSection, HistorySection, PrivacySection, RefinementSection, SpeechSection } from './sections';
 
-export type SettingsSectionId = 'general' | 'audio' | 'speech' | 'refinement' | 'history' | 'about';
+export type SettingsSectionId = 'general' | 'audio' | 'speech' | 'refinement' | 'privacy' | 'history' | 'about';
 
 const SECTIONS: { id: SettingsSectionId; label: string; icon: LucideIcon; render: () => React.ReactNode }[] = [
   { id: 'general', label: 'General', icon: SlidersHorizontal, render: () => <GeneralSection /> },
   { id: 'audio', label: 'Audio', icon: Mic, render: () => <AudioSection /> },
   { id: 'speech', label: 'Speech to text', icon: AudioLines, render: () => <SpeechSection /> },
   { id: 'refinement', label: 'AI refinement', icon: Sparkles, render: () => <RefinementSection /> },
+  { id: 'privacy', label: 'Privacy', icon: ShieldCheck, render: () => <PrivacySection /> },
   { id: 'history', label: 'History', icon: History, render: () => <HistorySection /> },
   { id: 'about', label: 'About', icon: Info, render: () => <AboutSection /> },
 ];

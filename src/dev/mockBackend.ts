@@ -21,6 +21,8 @@ const settings: Settings = {
   audio_retention_days: 14,
   flowbar_edge: 'bottom',
   smart_formatting: true,
+  context_awareness: false,
+  correction_learning: 'suggest',
 };
 
 let pool: PoolView = {
@@ -193,6 +195,21 @@ export function installMockBackend() {
         return Promise.reject(new Error('No audio in browser preview')) as Promise<T>;
       case 'history_storage':
         return delay({ sessions: history.length, audio_files: history.filter((h) => h.audio_state === 'encoded').length, audio_bytes: 98_400, retention_days: settings.audio_retention_days }) as Promise<T>;
+      case 'insights': {
+        const today = Math.floor((Date.now() - Number(args.tzOffsetMinutes) * 60_000) / 86_400_000);
+        const days: [number, number][] = [];
+        for (let i = 120; i >= 0; i--) if ((i * 7) % 5 !== 0 || i < 9) days.push([today - i, 40 + ((i * 37) % 260)]);
+        return delay({
+          total_words: 48_210, sessions: 612, words_per_minute: 118.4, words_this_month: 6_420, words_last_month: 5_380,
+          minutes_saved: 1_014, refined_sessions: 433, dictionary_fixes: 287, snippets_used: 41,
+          apps: [
+            { app: 'Slack', words: 18_400, sessions: 230 }, { app: 'VS Code', words: 11_200, sessions: 140 },
+            { app: 'Chrome', words: 8_900, sessions: 120 }, { app: 'Notepad', words: 4_100, sessions: 60 },
+            { app: 'Outlook', words: 3_200, sessions: 35 }, { app: 'Word', words: 1_500, sessions: 15 }, { app: 'Discord', words: 910, sessions: 12 },
+          ],
+          current_streak: 9, longest_streak: 23, today, days,
+        }) as Promise<T>;
+      }
       case 'dictionary_list':
         return delay(terms) as Promise<T>;
       case 'dictionary_add': {

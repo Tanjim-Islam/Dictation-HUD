@@ -21,8 +21,9 @@ use crate::services::Services;
 use crate::session::host::Host;
 use crate::session::machine::{DeliveryOutcome, Input, Outcome, Processed, SessionId, Snapshot, Trigger};
 use crate::session::SessionHandle;
+use crate::target::FocusSnapshot;
 use crate::target::{self, Target};
-use crate::{flowbar, refine, settings, textproc};
+use crate::{flowbar, learning, refine, settings, textproc};
 
 pub const SNAPSHOT_EVENT: &str = "session://snapshot";
 pub const LEVEL_EVENT: &str = "session://level";
@@ -31,6 +32,19 @@ pub const HISTORY_EVENT: &str = "history://changed";
 
 type Recorders = Arc<Mutex<HashMap<SessionId, RecordingWriter>>>;
 
+/// Per-session facts read from the focused control at start (on a background thread).
+/// Context text lives only here, in memory, and is dropped when the session is recorded.
+#[derive(Default, Clone)]
+struct Extras {
+  focus: Option<FocusSnapshot>,
+  context: Option<String>,
+}
+
+type ExtrasMap = Arc<Mutex<HashMap<SessionId, Extras>>>;
+
+/// Characters of field text before the caret given to AI refinement.
+const CONTEXT_CHARS: usize = 1_500;
+
 pub struct TauriHost {
   app: AppHandle,
   engine: Mutex<Option<EngineHandle>>,
@@ -38,6 +52,7 @@ pub struct TauriHost {
   recorders: Recorders,
   /// Where each session's text is meant to go, captured at start.
   targets: Mutex<HashMap<SessionId, Option<Target>>>,
+  extras: ExtrasMap,
 }
 
 /// Why delivery copied instead of pasting, until the outcome is recorded (managed state, so
@@ -80,6 +95,7 @@ impl TauriHost {
       engine: Mutex::new(None),
       recorders: Arc::new(Mutex::new(HashMap::new())),
       targets: Mutex::new(HashMap::new()),
+      extras: Arc::new(Mutex::new(HashMap::new())),
     }
   }
 
@@ -132,6 +148,32 @@ impl Host for TauriHost {
         db_warn("set_target", db.set_target(&sid, &t.app_label(), &t.title, &t.process));
       }
       None => tracing::info!(session = %id, "no target window"),
+    }
+    // Focused control, secure-field flag, selected tab, and (if enabled) context, read off
+    // the actor so a slow app never delays the microphone.
+    if let Some(t) = target.clone().filter(|t| t.kind == target::TargetKind::App) {
+      let extras = self.extras.clone();
+      let want_context = s.context_awareness;
+      std::thread::spawn(move || {
+        if target::foreground_relative_to(&t) != target::Foreground::Target {
+          return;
+        }
+        let focus = target::focus_snapshot(t.hwnd);
+        let secure = focus.as_ref().is_some_and(|f| f.secure);
+        let context = if want_context && !secure {
+          target::text_before_caret(CONTEXT_CHARS)
+        } else {
+          None
+        };
+        tracing::debug!(
+          session = %id,
+          secure,
+          tab = focus.as_ref().is_some_and(|f| f.tab.is_some()),
+          context = %context.as_deref().map(text_shape).unwrap_or_default(),
+          "focus captured"
+        );
+        extras.lock().unwrap().insert(id, Extras { focus, context });
+      });
     }
     self.targets.lock().unwrap().insert(id, target);
     let _ = self.app.emit(HISTORY_EVENT, ());
@@ -215,6 +257,7 @@ impl Host for TauriHost {
   fn process(&self, id: SessionId, transcript: String, session: &SessionHandle) {
     let app = self.app.clone();
     let session = session.clone();
+    let context = self.extras.lock().unwrap().get(&id).and_then(|e| e.context.clone());
     tauri::async_runtime::spawn(async move {
       let sid = id.to_string();
       {
@@ -226,7 +269,7 @@ impl Host for TauriHost {
           );
         }
       }
-      let out = process_text(&app, &transcript).await;
+      let out = process_text_with(&app, &transcript, false, context.as_deref()).await;
       let result = match &out {
         None => Processed::Empty,
         Some(o) => {
@@ -258,16 +301,26 @@ impl Host for TauriHost {
     let app = self.app.clone();
     let session = session.clone();
     let target = self.targets.lock().unwrap().get(&id).cloned().flatten();
-    let auto_paste = settings::load(&app).auto_paste;
+    let focus = self.extras.lock().unwrap().get(&id).and_then(|e| e.focus.clone());
+    let s = settings::load(&app);
+    let auto_paste = s.auto_paste;
+    let learn_mode = learning::Mode::parse(&s.correction_learning).unwrap_or_default();
     let reasons_app = self.app.clone();
     tauri::async_runtime::spawn(async move {
+      let tab = focus.as_ref().and_then(|f| f.tab.clone());
+      let pasted_text = text.clone();
       let result = tauri::async_runtime::spawn_blocking(move || {
-        delivery::deliver(&reasons_app, &text, target.as_ref(), auto_paste)
+        delivery::deliver(&reasons_app, &text, target.as_ref(), tab, auto_paste)
       })
       .await
       .unwrap_or(Delivered::Failed);
       let outcome = match &result {
-        Delivered::Pasted => DeliveryOutcome::Pasted,
+        Delivered::Pasted => {
+          if let Some(f) = focus.filter(|f| !f.secure && learn_mode != learning::Mode::Off) {
+            watch_corrections(app.clone(), pasted_text, f.runtime_id, learn_mode);
+          }
+          DeliveryOutcome::Pasted
+        }
         Delivered::Copied(reason) => {
           tracing::info!(session = %id, reason = reason.code(), "copied instead of pasting");
           if let Some(state) = app.try_state::<CopyReasons>() {
@@ -312,6 +365,8 @@ impl Host for TauriHost {
     // Covers sessions whose capture never stopped normally (start failure, shutdown).
     close_recording(&self.app, &self.recorders, id);
     self.targets.lock().unwrap().remove(&id);
+    // Context is ephemeral: gone with the session.
+    self.extras.lock().unwrap().remove(&id);
     let reason = self
       .app
       .try_state::<CopyReasons>()
@@ -353,6 +408,60 @@ fn synthetic_source() -> Option<Arc<Vec<i16>>> {
   }
 }
 
+fn normalize_newlines(s: &str) -> String {
+  s.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// After a paste, reads the same focused control again a few times (ephemerally) and offers
+/// small fixes the user made inside the pasted text as dictionary entries.
+fn watch_corrections(app: AppHandle, inserted: String, focus_id: Vec<i32>, mode: learning::Mode) {
+  std::thread::spawn(move || {
+    let inserted = normalize_newlines(inserted.trim());
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let Some((id0, before)) = target::focused_text(learning::MAX_FIELD_CHARS) else {
+      return;
+    };
+    let before = normalize_newlines(&before);
+    if (!focus_id.is_empty() && id0 != focus_id) || !before.contains(&inserted) {
+      return;
+    }
+    let mut after = None;
+    let mut waited = std::time::Duration::ZERO;
+    for &check in learning::CHECKS {
+      std::thread::sleep(check - waited);
+      waited = check;
+      match target::focused_text(learning::MAX_FIELD_CHARS) {
+        Some((id, text)) if id == id0 => after = Some(normalize_newlines(&text)),
+        // Focus moved away: keep the last read.
+        _ => break,
+      }
+    }
+    let Some(after) = after else {
+      return;
+    };
+    let learned = learning::learn(&inserted, &before, &after);
+    if learned.is_empty() {
+      return;
+    }
+    let status = if mode == learning::Mode::Auto {
+      "active"
+    } else {
+      "suggested"
+    };
+    let db = app.state::<Db>();
+    let mut added = 0;
+    for l in &learned {
+      if db.add_term(&l.phrase, l.heard.as_deref(), "learned", status).is_ok() {
+        added += 1;
+      }
+    }
+    tracing::info!(found = learned.len(), added, status, "correction learning");
+    if added > 0 {
+      let _ = app.emit(crate::dictionary::LEXICON_EVENT, ());
+    }
+  });
+}
+
 pub struct ProcessOutput {
   pub formatted: String,
   pub final_text: String,
@@ -378,13 +487,14 @@ pub fn lexicon(app: &AppHandle) -> textproc::Lexicon {
 
 /// Deterministic pipeline (dictionary, snippets, spoken commands, smart formatting), then
 /// optional AI refinement with deterministic fallback. `None` means there was no text.
-pub async fn process_text(app: &AppHandle, transcript: &str) -> Option<ProcessOutput> {
-  process_text_with(app, transcript, false).await
-}
-
-/// Like [`process_text`]; `force_refine` runs AI refinement even when it is turned off
-/// (History "Retry refinement").
-pub async fn process_text_with(app: &AppHandle, transcript: &str, force_refine: bool) -> Option<ProcessOutput> {
+/// `force_refine` runs AI refinement even when it is turned off (History "Retry
+/// refinement"); `context` is field text before the caret (never stored).
+pub async fn process_text_with(
+  app: &AppHandle,
+  transcript: &str,
+  force_refine: bool,
+  context: Option<&str>,
+) -> Option<ProcessOutput> {
   let s = settings::load(app);
   let lex = lexicon(app);
   let prepared = textproc::prepare(transcript, &lex, s.smart_formatting);
@@ -416,6 +526,7 @@ pub async fn process_text_with(app: &AppHandle, transcript: &str, force_refine: 
   let req = refine::Request {
     text: &prepared.text,
     vocabulary: &lex.vocabulary,
+    context,
     timeout: if force_refine {
       refine::RETRY_TIMEOUT
     } else {

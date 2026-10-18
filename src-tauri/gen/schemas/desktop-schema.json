@@ -351,6 +351,12 @@
           "markdownDescription": "Enables the history_storage command without any pre-configured scope."
         },
         {
+          "description": "Enables the insights command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-insights",
+          "markdownDescription": "Enables the insights command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_refine_models command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-refine-models",
@@ -607,6 +613,12 @@
           "type": "string",
           "const": "deny-history-storage",
           "markdownDescription": "Denies the history_storage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the insights command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-insights",
+          "markdownDescription": "Denies the insights command without any pre-configured scope."
         },
         {
           "description": "Denies the list_refine_models command without any pre-configured scope.",

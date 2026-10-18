@@ -204,7 +204,7 @@ async fn retranscribe(app: &AppHandle, id: &str) -> Result<(), String> {
     }
   };
   db.finish_attempt(attempt, "ok", None, Some(&text)).map_err(db_err)?;
-  let out = process_text_with(app, &text, false)
+  let out = process_text_with(app, &text, false, None)
     .await
     .ok_or("No speech was found in the recording.")?;
   save_output(&db, id, &text, &out)?;
@@ -240,7 +240,7 @@ pub async fn history_recover(app: AppHandle, busy: State<'_, Busy>, id: String) 
   let r = if has_final {
     db.mark_recovered(&id).map(|_| ()).map_err(db_err)
   } else if !raw.trim().is_empty() {
-    match process_text_with(&app, &raw, false).await {
+    match process_text_with(&app, &raw, false, None).await {
       Some(out) => save_output(&db, &id, &raw, &out).and_then(|_| db.mark_recovered(&id).map(|_| ()).map_err(db_err)),
       None => Err("There is nothing to recover.".into()),
     }
@@ -269,7 +269,7 @@ pub async fn history_retry_refinement(
     .clone()
     .filter(|t| !t.trim().is_empty())
     .ok_or("There is no transcript to refine.")?;
-  let out = process_text_with(&app, &raw, true)
+  let out = process_text_with(&app, &raw, true, None)
     .await
     .ok_or("There is no transcript to refine.")?;
   if out.refine_status != "ok" {
@@ -359,6 +359,21 @@ pub async fn history_storage(app: AppHandle, db: State<'_, Db>) -> Result<Storag
     stats: db.storage_stats().map_err(db_err)?,
     retention_days: settings::load(&app).audio_retention_days,
   })
+}
+
+/// Local usage metrics for the Insights page. `tz_offset_minutes` is the WebView's
+/// `getTimezoneOffset()`, so days and months follow the user's clock.
+#[tauri::command]
+pub async fn insights(db: State<'_, Db>, tz_offset_minutes: i64) -> Result<crate::db::insights::Insights, String> {
+  let rows = db.insight_rows().map_err(db_err)?;
+  let (fixes, snippets) = db.fix_counts().map_err(db_err)?;
+  Ok(crate::db::insights::aggregate(
+    &rows,
+    now_ms(),
+    tz_offset_minutes.clamp(-14 * 60, 14 * 60),
+    fixes,
+    snippets,
+  ))
 }
 
 #[derive(Debug, Default, PartialEq)]

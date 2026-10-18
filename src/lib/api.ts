@@ -23,6 +23,8 @@ export type Settings = {
   audio_retention_days: number;
   flowbar_edge: 'bottom' | 'top' | 'left' | 'right';
   smart_formatting: boolean;
+  context_awareness: boolean;
+  correction_learning: 'off' | 'suggest' | 'auto';
 };
 
 export type SettingsPatch = Partial<Omit<Settings, 'version' | 'autostart' | 'input_device'>> & { input_device?: string };
@@ -129,6 +131,23 @@ export type Snippet = { id: number; trigger: string; expansion: string; uses: nu
 export type SnippetInput = { trigger: string; expansion: string };
 export type ImportResult = { added: number; skipped: number };
 
+export type Insights = {
+  total_words: number;
+  sessions: number;
+  words_per_minute: number | null;
+  words_this_month: number;
+  words_last_month: number;
+  minutes_saved: number;
+  refined_sessions: number;
+  dictionary_fixes: number;
+  snippets_used: number;
+  apps: { app: string; words: number; sessions: number }[];
+  current_streak: number;
+  longest_streak: number;
+  today: number;
+  days: [number, number][];
+};
+
 export type TestResult = { ok: boolean; message: string };
 export type AudioDevice = { id: string; name: string; is_default: boolean };
 
@@ -170,6 +189,7 @@ export const api = {
     remove: (id: string, audioOnly: boolean) => invoke<void>('history_delete', { id, audioOnly }),
     storage: () => invoke<StorageView>('history_storage'),
   },
+  insights: (tzOffsetMinutes: number) => invoke<Insights>('insights', { tzOffsetMinutes }),
   dictionary: {
     list: () => invoke<Term[]>('dictionary_list'),
     add: (input: TermInput) => invoke<Term>('dictionary_add', { input }),

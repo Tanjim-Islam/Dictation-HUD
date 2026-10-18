@@ -44,6 +44,11 @@ pub struct Settings {
   // Formatting
   /// Safe spacing, "i" to "I", and capitals after spoken sentence commands.
   pub smart_formatting: bool,
+  // Privacy and context
+  /// Read the text before the caret (never secure fields) to help AI refinement. Ephemeral.
+  pub context_awareness: bool,
+  /// `off`, `suggest`, or `auto`: learn dictionary entries from fixes made right after a paste.
+  pub correction_learning: String,
 }
 
 /// Longest finite retention offered.
@@ -72,6 +77,8 @@ impl Default for Settings {
       audio_retention_days: 14,
       flowbar_edge: "bottom".into(),
       smart_formatting: true,
+      context_awareness: false,
+      correction_learning: "suggest".into(),
     }
   }
 }
@@ -104,6 +111,9 @@ impl Settings {
       self.input_device = None;
     }
     self.audio_retention_days = self.audio_retention_days.min(MAX_RETENTION_DAYS);
+    if crate::learning::Mode::parse(&self.correction_learning).is_none() {
+      self.correction_learning = "suggest".into();
+    }
     if crate::flowbar::Edge::parse(&self.flowbar_edge).is_none() {
       self.flowbar_edge = "bottom".into();
     }
@@ -137,6 +147,8 @@ pub struct SettingsPatch {
   pub audio_retention_days: Option<u32>,
   pub flowbar_edge: Option<String>,
   pub smart_formatting: Option<bool>,
+  pub context_awareness: Option<bool>,
+  pub correction_learning: Option<String>,
 }
 
 pub type BehaviorPatch = SettingsPatch;
@@ -163,7 +175,9 @@ impl SettingsPatch {
       megallm_model,
       audio_retention_days,
       flowbar_edge,
-      smart_formatting
+      smart_formatting,
+      context_awareness,
+      correction_learning
     );
     f
   }
@@ -178,7 +192,8 @@ impl SettingsPatch {
       noise_suppression,
       ai_refine,
       audio_retention_days,
-      smart_formatting
+      smart_formatting,
+      context_awareness
     );
     if let Some(v) = self.stt_provider {
       s.stt_provider = v.to_lowercase();
@@ -192,7 +207,8 @@ impl SettingsPatch {
       language,
       openrouter_model,
       megallm_model,
-      flowbar_edge
+      flowbar_edge,
+      correction_learning
     );
     if let Some(v) = self.input_device {
       s.input_device = if v.is_empty() { None } else { Some(v) };
@@ -358,6 +374,17 @@ mod tests {
     }
     .apply(&mut s);
     assert_eq!(s.audio_retention_days, 0, "0 keeps recordings forever");
+  }
+
+  #[test]
+  fn privacy_defaults() {
+    let s = Settings::default();
+    assert!(!s.context_awareness, "context is opt-in");
+    assert_eq!(s.correction_learning, "suggest");
+    assert_eq!(
+      Settings::from_stored(serde_json::json!({ "correction_learning": "always" })).correction_learning,
+      "suggest"
+    );
   }
 
   #[test]

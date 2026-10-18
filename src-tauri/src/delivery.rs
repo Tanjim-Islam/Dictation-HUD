@@ -12,7 +12,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::target::{self, Foreground, Target, TargetKind, Validation};
+use crate::target::{self, Foreground, TabPos, Target, TargetKind, Validation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +25,8 @@ pub enum CopyReason {
   ElevatedTarget,
   FocusFailed,
   KeystrokeFailed,
+  /// A different tab of the same window is selected than when dictation started.
+  TabChanged,
 }
 
 impl CopyReason {
@@ -38,6 +40,7 @@ impl CopyReason {
       CopyReason::ElevatedTarget => "elevated_target",
       CopyReason::FocusFailed => "focus_failed",
       CopyReason::KeystrokeFailed => "keystroke_failed",
+      CopyReason::TabChanged => "tab_changed",
     }
   }
 
@@ -51,6 +54,7 @@ impl CopyReason {
       CopyReason::ElevatedTarget => Some("Copied. That app runs as administrator, so it can't be typed into."),
       CopyReason::FocusFailed => Some("Copied. The original window could not be focused."),
       CopyReason::KeystrokeFailed => Some("Copied. The paste keystroke was blocked."),
+      CopyReason::TabChanged => Some("Copied. You switched tabs."),
     }
   }
 }
@@ -164,8 +168,15 @@ mod keys {
 }
 
 /// Delivers `text` for a session. Blocking (focus changes and key timing); call from a
-/// blocking-capable task.
-pub fn deliver(app: &AppHandle, text: &str, target: Option<&Target>, auto_paste: bool) -> Delivered {
+/// blocking-capable task. `tab_at_start` is the selected tab of the target window when the
+/// session started (tabbed windows share one handle, so a tab switch needs its own check).
+pub fn deliver(
+  app: &AppHandle,
+  text: &str,
+  target: Option<&Target>,
+  tab_at_start: Option<TabPos>,
+  auto_paste: bool,
+) -> Delivered {
   let previous = app.clipboard().read_text().ok();
   if !write_clipboard(app, text) {
     tracing::error!("clipboard write failed");
@@ -196,9 +207,12 @@ pub fn deliver(app: &AppHandle, text: &str, target: Option<&Target>, auto_paste:
       Validation::Valid => CopyReason::FocusFailed,
     });
   }
-  // Last check right before the keystroke: still the same window in front.
+  // Last checks right before the keystroke: still the same window in front, same tab.
   if target::foreground_relative_to(t) != Foreground::Target {
     return Delivered::Copied(CopyReason::FocusFailed);
+  }
+  if tab_at_start.is_some() && target::tab_changed(tab_at_start.as_ref(), target::selected_tab(t.hwnd).as_ref()) {
+    return Delivered::Copied(CopyReason::TabChanged);
   }
   std::thread::sleep(Duration::from_millis(40));
   if !keys::send_paste() {
@@ -311,6 +325,7 @@ mod tests {
       CopyReason::ElevatedTarget,
       CopyReason::FocusFailed,
       CopyReason::KeystrokeFailed,
+      CopyReason::TabChanged,
     ] {
       assert!(r.notice().is_some(), "{r:?}");
     }
