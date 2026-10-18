@@ -16,15 +16,15 @@
   --border: 238 235 227;
   --ink: 26 26 26;
   --ink-muted: 108 107 106;
-  --ink-faint: 158 156 151;
+  --ink-faint: 120 118 114;
   --track: 197 192 179;
   --accent: 26 92 92;
   --accent-soft: 214 236 233;
   --danger: 185 38 38;
   --danger-soft: 251 233 233;
-  --success: 22 128 84;
+  --success: 20 112 73;
   --success-soft: 209 250 229;
-  --warning: 161 98 7;
+  --warning: 142 86 6;
   --warning-soft: 254 243 199;
   color-scheme: light;
 }

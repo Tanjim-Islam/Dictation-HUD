@@ -8,7 +8,6 @@ fn main() {
     "get_hotkey",
     "set_autostart",
     "get_autostart",
-    "log_to_terminal",
     "get_settings",
     "update_settings",
     "providers_overview",

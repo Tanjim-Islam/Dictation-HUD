@@ -60,9 +60,6 @@ pub struct Settings {
 /// Longest finite retention offered.
 pub const MAX_RETENTION_DAYS: u32 = 3_650;
 
-/// Kept for call sites written before the rename.
-pub type BehaviorPrefs = Settings;
-
 impl Default for Settings {
   fn default() -> Self {
     Self {
@@ -162,8 +159,6 @@ pub struct SettingsPatch {
   pub correction_learning: Option<String>,
   pub coding_awareness: Option<bool>,
 }
-
-pub type BehaviorPatch = SettingsPatch;
 
 impl SettingsPatch {
   /// Names of the fields this patch sets (for diagnostics; no values).
@@ -276,14 +271,6 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
   let store = app.store("prefs.json").map_err(|e| e.to_string())?;
   store.set("settings", serde_json::to_value(settings).map_err(|e| e.to_string())?);
   store.save().map_err(|e| e.to_string())
-}
-
-pub fn load_behavior(app: &AppHandle) -> Settings {
-  load(app)
-}
-
-pub fn save_behavior(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-  save(app, settings)
 }
 
 #[cfg(test)]

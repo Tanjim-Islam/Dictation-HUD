@@ -41,7 +41,7 @@ pub type SinkFactory = Arc<dyn Fn(SessionId) -> Vec<FrameSink> + Send + Sync>;
 /// Side channels from the engine to the host. Called off the session actor.
 #[derive(Clone)]
 pub struct EngineHooks {
-  /// Display-rate microphone levels for the HUD.
+  /// Display-rate microphone levels for the Flow Bar.
   pub levels: LevelEmitter,
   /// Capture stopped (finish, cancel, failure). Stats describe the captured audio. All frame
   /// sinks have been dropped (flushed) before this runs.

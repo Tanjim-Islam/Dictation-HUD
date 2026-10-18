@@ -95,9 +95,9 @@ async fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
   } else {
     autolaunch.disable().map_err(|e| e.to_string())?;
   }
-  let mut prefs = settings::load_behavior(&app);
+  let mut prefs = settings::load(&app);
   prefs.autostart = enabled;
-  settings::save_behavior(&app, &prefs)?;
+  settings::save(&app, &prefs)?;
   tracing::info!(enabled, "autostart updated");
   Ok(())
 }
@@ -105,13 +105,6 @@ async fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn get_autostart(app: AppHandle) -> Result<bool, String> {
   app.autolaunch().is_enabled().map_err(|e| e.to_string())
-}
-
-/// Frontend diagnostics. Messages must be content-free; they are length-capped here.
-#[tauri::command]
-fn log_to_terminal(message: String) {
-  let capped: String = message.chars().take(300).collect();
-  tracing::info!(target: "frontend", "{capped}");
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -248,7 +241,6 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       get_hotkey,
       set_autostart,
       get_autostart,
-      log_to_terminal,
       commands::get_settings,
       commands::update_settings,
       commands::providers_overview,

@@ -10,7 +10,6 @@
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "allow-session-intent",
-    "allow-session-snapshot",
-    "allow-log-to-terminal"
+    "allow-session-snapshot"
   ]
 }
