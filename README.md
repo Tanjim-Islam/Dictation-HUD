@@ -1,118 +1,65 @@
-# Dictation HUD
+# Wispr Flow clone - Dictation HUD
 
-Cross-platform AI-powered dictation utility built with Tauri 2.0.0-rc.3, React + Vite + TypeScript, Tailwind, and Framer Motion. Features real-time speech-to-text with AI refinement and automatic paste functionality.
+This is an open source Wispr Flow clone. Press a shortcut in any app, speak, press it again, and your words are typed where you were working, cleaned up and formatted.
 
-## Install
-
-Prereqs: Node 18+, npm (or pnpm), Rust stable, system build tools, microphone access.
-
-```bash
-# install deps
-npm i
-
-# dev (starts Vite and Tauri dev)
-npm run dev
-
-# build desktop bundles
-npm run build
-```
-
-If you prefer pnpm, swap commands accordingly.
-
-## Environment
-
-Create a `.env` at repo root for local development. API keys can also be configured via the Settings UI and are securely stored using Tauri's store plugin.
-
-```env
-# Speech-to-Text providers (choose one or both)
-DEEPGRAM_API_KEY=
-ELEVENLABS_API_KEY=
-
-# AI refinement providers (choose one or both)
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
-MEGALLM_API_KEY=
-
-# Optional behavior
-HUD_SILENCE_SECONDS=2
-AUTO_PASTE=true
-LOG_TO_FILE=false
-```
-
-**Provider notes:**
-- **Deepgram**: Real-time WebSocket streaming with nova-2 model for accurate transcription
-- **ElevenLabs**: Alternative STT provider with voice recognition capabilities
-- **OpenRouter**: Access to multiple LLM providers for text refinement
-- **MegaLLM**: Alternative AI provider for text post-processing
-
-## How AI Works
-
-The app uses a two-stage AI pipeline for high-quality dictation:
-
-### 1. Speech-to-Text (STT)
-Choose between two providers in Settings:
-- **Deepgram** (default): Real-time WebSocket streaming using Web Audio API to send raw PCM audio (16kHz mono, linear16). Uses the Nova-2 model with smart formatting, punctuation, and interim results.
-- **ElevenLabs**: Alternative STT provider with voice recognition.
-
-### 2. AI Text Refinement
-After transcription, the raw text is optionally refined by an LLM to:
-- Fix punctuation and capitalization
-- Correct speech-to-text mishearings based on context
-- Remove filler words (um, uh, like) and stammering
-- Preserve meaning, intent, and special characters
-- **Never** respond conversationally or refuse input
-
-The refinement uses a carefully crafted system prompt that treats the AI as a "text processing machine" rather than an assistant. This prevents the AI from:
-- Treating dictated text as instructions ("tell me a joke" → "Tell me a joke.")
-- Adding explanations or refusing requests
-- Engaging in conversation
-
-**Anti-refusal system**: If the AI response matches refusal patterns (e.g., "I'm sorry," "I can't," "As an AI"), the app automatically falls back to the raw transcription. This ensures your dictated text is never lost due to AI safety filters.
-
-Choose between:
-- **OpenRouter**: Access to various LLM providers (configurable model)
-- **MegaLLM**: Alternative AI provider for text post-processing
-
-### 3. Auto-Paste
-When enabled, refined text is automatically pasted into the focused application using platform-native clipboard and keyboard simulation.
-
-## Scripts
-
-- `npm run dev` — Tauri dev with Vite dev server
-- `npm run build` — production build/bundles
-- `npm run test:providers` — OpenRouter request + Deepgram WS handshake
-- `npm run lint` / `npm run format`
-
-## Capabilities
-
-See `src-tauri/capabilities/default.json`: tray, global shortcuts, clipboard, store, stronghold, window.
-
-## Windows
-
-- `settings` — normal window, hidden by default (shown from tray)
-- `hud` — 600x84, transparent, frameless, always-on-top, hidden by default
+Dictation HUD is a Windows desktop app built with Tauri 2 (Rust) and React.
 
 ## Features
 
-- **Multiple AI Providers**: Switch between OpenRouter and MegaLLM for text refinement
-- **Multiple STT Providers**: Choose between Deepgram and ElevenLabs for speech recognition
-- **Configurable Silence Detection**: Set custom silence duration (default: 2 seconds) to determine when dictation ends
-- **Auto-Paste**: Automatically paste refined text into focused applications (requires Accessibility permissions on macOS)
-- **Echo Cancellation & Noise Suppression**: Enhanced audio processing for clearer transcriptions
-- **Stream Insert Mode**: Real-time text insertion as you speak (experimental)
-- **Autostart**: Launch on system startup
-- **Global Hotkey**: Customizable keyboard shortcut to start/stop dictation
-- **System Tray**: Quick access to settings and controls
+- **Dictate anywhere.** One global shortcut (default `Ctrl+Shift+Alt+H`) starts and finishes dictation in any app. A small Flow Bar shows a live waveform and lets you cancel or finish with a click. It never takes focus away from the app you are typing in.
+- **Safe delivery.** Text is pasted only into the window you started in. If you switched apps, switched tabs, or the window closed, the text is copied to the clipboard instead and the app tells you why.
+- **Speech to text.** Deepgram (Nova-3, 70+ languages including Bengali) or ElevenLabs (Scribe). ElevenLabs supports a pool of API keys: credits add up and the app switches keys when one runs low. Paste a whole list of keys at once.
+- **AI refinement (optional).** Fixes punctuation, grammar, and filler words with an OpenRouter or MegaLLM model. If the model is slow or fails, the formatted transcript is used instead, so nothing is lost.
+- **History.** Every dictation is saved locally with its recording. Play it back, copy it, retry the transcript, retry refinement, recover interrupted dictations, export WAV, or delete. Recordings are kept 14 days by default; transcripts are kept.
+- **Dictionary and snippets.** Teach it names and terms, fix words it keeps mishearing, and say a short trigger to insert saved text exactly as written. It can suggest dictionary entries when you correct a word right after dictating.
+- **Coding awareness.** In code editors and terminals, say "camel case get user name" for `getUserName`, plus snake, pascal, kebab, and constant case. Terminal commands keep a lowercase first word and no trailing period.
+- **Context awareness (optional).** Gives AI refinement the text just before your cursor so names and tone match. Never saved, and never read from password or PIN fields.
+- **Insights.** Words per minute, total words, time saved, apps you dictate in, and your streak, all calculated on your computer.
+- **Native audio.** Microphone capture, echo cancellation, and noise suppression run in Rust, so dictation starts instantly.
+- **Tray and updates.** Tray menu for the microphone, language, and pasting your last transcript. Signed automatic updates from GitHub releases.
 
-## Notes
+## Privacy
 
-- **Privacy**: Audio is never persisted or stored. Only text is sent to AI providers for refinement.
-- **Auto-paste** may require Accessibility permissions on macOS and is limited on some Wayland setups; the app falls back to manual clipboard copy.
-- **Platform-specific**: The HUD attempts to appear on the currently focused monitor (Windows) or primary monitor (other platforms).
-- **Audio Quality**: Uses 16kHz mono linear16 PCM for optimal Deepgram compatibility and efficient bandwidth usage.
+- API keys are stored in Windows Credential Manager. They never reach the app's web views and are never written to logs.
+- Transcripts, recordings, and your dictionary stay on your computer (SQLite and Opus files in your app data folder).
+- Audio goes only to the speech provider you choose. Text goes to an AI provider only when AI refinement is on.
 
-## Troubleshooting
+## Install
 
-- If the global hotkey fails to register, pick a different combo in Settings.
-- On first microphone use, accept the OS prompt. If denied, HUD shows a small badge.
+Download the latest installer from [Releases](https://github.com/Tanjim-Islam/Dictation-HUD/releases). Then open Settings, add a Deepgram or ElevenLabs API key, and press the shortcut in any app.
 
+## Development
+
+Prerequisites: Windows 10 or 11, Node 20+, Rust stable, CMake and Ninja (for the bundled Opus encoder), and the WebView2 runtime.
+
+```powershell
+npm ci
+npm run dev              # app with hot reload
+npm run dev:frontend     # UI only, in a browser, with a mocked backend
+```
+
+Checks (the same ones CI runs):
+
+```powershell
+npm run check:versions
+npm run typecheck
+npm run lint
+npm test
+npm run build:frontend
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+npx tauri build --no-bundle
+```
+
+Development builds can read API keys from a `.env` file at the repo root (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `OPENROUTER_API_KEY`, `MEGALLM_API_KEY`). Release builds never read `.env`; add keys in Settings.
+
+Signed installers are built by the release workflow when a `v<version>` tag is pushed. The version in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json` must match the tag.
+
+## Project layout
+
+```text
+src/            React UI: History, Insights, Dictionary, Snippets, Settings, Flow Bar
+src-tauri/src/  Rust: session state machine, audio engine, providers, delivery,
+                text pipeline, history database, tray, updates
+```
