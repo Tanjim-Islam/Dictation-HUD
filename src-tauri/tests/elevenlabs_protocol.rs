@@ -56,6 +56,8 @@ async fn mock_server() -> (String, Received) {
       tokio::spawn(async move {
         let key = Arc::new(Mutex::new(String::new()));
         let k2 = key.clone();
+        // The handshake callback's error type is fixed by tungstenite (a full HTTP response).
+        #[allow(clippy::result_large_err)]
         let cb = move |req: &Request, resp: Response| {
           *k2.lock().unwrap() = req
             .headers()
