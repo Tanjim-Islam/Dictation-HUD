@@ -49,6 +49,12 @@ pub struct Settings {
   pub context_awareness: bool,
   /// `off`, `suggest`, or `auto`: learn dictionary entries from fixes made right after a paste.
   pub correction_learning: String,
+  // Coding
+  /// Casing commands, code symbols, and shell-friendly text in code editors and terminals.
+  pub coding_awareness: bool,
+  // Window
+  /// Main window size in logical pixels, restored at startup. Not user-editable.
+  pub window_size: Option<[u32; 2]>,
 }
 
 /// Longest finite retention offered.
@@ -79,6 +85,8 @@ impl Default for Settings {
       smart_formatting: true,
       context_awareness: false,
       correction_learning: "suggest".into(),
+      coding_awareness: true,
+      window_size: None,
     }
   }
 }
@@ -111,6 +119,9 @@ impl Settings {
       self.input_device = None;
     }
     self.audio_retention_days = self.audio_retention_days.min(MAX_RETENTION_DAYS);
+    self.window_size = self
+      .window_size
+      .map(|[w, h]| [w.clamp(960, 7_680), h.clamp(620, 4_320)]);
     if crate::learning::Mode::parse(&self.correction_learning).is_none() {
       self.correction_learning = "suggest".into();
     }
@@ -149,6 +160,7 @@ pub struct SettingsPatch {
   pub smart_formatting: Option<bool>,
   pub context_awareness: Option<bool>,
   pub correction_learning: Option<String>,
+  pub coding_awareness: Option<bool>,
 }
 
 pub type BehaviorPatch = SettingsPatch;
@@ -177,7 +189,8 @@ impl SettingsPatch {
       flowbar_edge,
       smart_formatting,
       context_awareness,
-      correction_learning
+      correction_learning,
+      coding_awareness
     );
     f
   }
@@ -193,7 +206,8 @@ impl SettingsPatch {
       ai_refine,
       audio_retention_days,
       smart_formatting,
-      context_awareness
+      context_awareness,
+      coding_awareness
     );
     if let Some(v) = self.stt_provider {
       s.stt_provider = v.to_lowercase();
@@ -374,6 +388,13 @@ mod tests {
     }
     .apply(&mut s);
     assert_eq!(s.audio_retention_days, 0, "0 keeps recordings forever");
+  }
+
+  #[test]
+  fn window_size_is_clamped() {
+    let s = Settings::from_stored(serde_json::json!({ "window_size": [100, 99_999] }));
+    assert_eq!(s.window_size, Some([960, 4_320]));
+    assert_eq!(Settings::default().window_size, None);
   }
 
   #[test]

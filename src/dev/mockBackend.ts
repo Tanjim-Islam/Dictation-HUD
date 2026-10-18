@@ -23,6 +23,7 @@ const settings: Settings = {
   smart_formatting: true,
   context_awareness: false,
   correction_learning: 'suggest',
+  coding_awareness: true,
 };
 
 let pool: PoolView = {

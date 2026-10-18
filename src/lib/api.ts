@@ -25,6 +25,7 @@ export type Settings = {
   smart_formatting: boolean;
   context_awareness: boolean;
   correction_learning: 'off' | 'suggest' | 'auto';
+  coding_awareness: boolean;
 };
 
 export type SettingsPatch = Partial<Omit<Settings, 'version' | 'autostart' | 'input_device'>> & { input_device?: string };

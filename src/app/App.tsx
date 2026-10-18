@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsProvider } from '@/features/settings/SettingsContext';
 import { SettingsDialog, type SettingsSectionId } from '@/features/settings/SettingsDialog';
+import { checkForUpdates } from '@/features/settings/updater';
 import { HistoryPage } from '@/features/history/HistoryPage';
 import { InsightsPage } from '@/features/insights/InsightsPage';
 import { DictionaryPage } from '@/features/dictionary/DictionaryPage';
@@ -41,8 +42,10 @@ export function App() {
       setSection(e.payload ?? 'general');
       setSettingsOpen(true);
     });
+    const unCheck = listen('app://check-updates', () => void checkForUpdates());
     return () => {
       un.then((f) => f());
+      unCheck.then((f) => f());
     };
   }, []);
 

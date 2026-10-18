@@ -328,8 +328,14 @@ const MAX_VOCABULARY_HINTS: usize = 100;
 
 /// The system prompt plus, when needed, rules for snippet placeholders, the user's preferred
 /// spellings, and the text already in the field (context awareness).
-pub fn system_prompt_with(vocabulary: &[String], placeholders: bool, context: Option<&str>) -> String {
+pub fn system_prompt_with(vocabulary: &[String], placeholders: bool, context: Option<&str>, code: bool) -> String {
   let mut p = get_system_prompt().to_string();
+  if code {
+    p.push_str(
+      "\n\n---\n\n# CODE TARGET\n\nThe text goes into a code editor or terminal. Keep code, commands, file names, \
+       paths, and identifiers exactly as written. Do not add a trailing period to a command.",
+    );
+  }
   if placeholders {
     p.push_str(
       "\n\n---\n\n# PLACEHOLDERS\n\nTokens like \u{27E6}1\u{27E7} stand for text that is inserted later. \
@@ -365,15 +371,16 @@ mod vocabulary_tests {
 
   #[test]
   fn adds_sections_only_when_needed() {
-    let base = system_prompt_with(&[], false, None);
+    let base = system_prompt_with(&[], false, None, false);
     assert_eq!(base, get_system_prompt());
-    let p = system_prompt_with(&["WACV".into(), "Tanjim Riju".into()], true, None);
+    let p = system_prompt_with(&["WACV".into(), "Tanjim Riju".into()], true, None, false);
     assert!(p.contains("PLACEHOLDERS"));
     assert!(p.contains("WACV, Tanjim Riju."));
     let many: Vec<String> = (0..500).map(|i| format!("term{i}")).collect();
-    assert!(!system_prompt_with(&many, false, None).contains("term100,"));
-    let c = system_prompt_with(&[], false, Some("Dear Ana,"));
+    assert!(!system_prompt_with(&many, false, None, false).contains("term100,"));
+    let c = system_prompt_with(&[], false, Some("Dear Ana,"), false);
     assert!(c.contains("FIELD CONTEXT") && c.contains("<<<\nDear Ana,\n>>>"));
-    assert_eq!(system_prompt_with(&[], false, Some("   ")), get_system_prompt());
+    assert_eq!(system_prompt_with(&[], false, Some("   "), false), get_system_prompt());
+    assert!(system_prompt_with(&[], false, None, true).contains("CODE TARGET"));
   }
 }

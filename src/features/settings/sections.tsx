@@ -46,23 +46,6 @@ export function GeneralSection() {
           description="Tidy spacing, capitalize “I” and new sentences after spoken commands like “new line”. Words and punctuation from the speech provider are otherwise kept."
           control={<Switch aria-label="Smart formatting" checked={settings.smart_formatting} onCheckedChange={(v) => update({ smart_formatting: v })} />}
         />
-        <Row
-          title="Flow Bar position"
-          description="Where the Flow Bar appears while you dictate, on the screen of the app you are using."
-          control={
-            <Select value={settings.flowbar_edge} onValueChange={(v) => update({ flowbar_edge: v as typeof settings.flowbar_edge })}>
-              <SelectTrigger className="w-[150px]" aria-label="Flow Bar position">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="bottom">Bottom</SelectItem>
-                <SelectItem value="top">Top</SelectItem>
-                <SelectItem value="left">Left</SelectItem>
-                <SelectItem value="right">Right</SelectItem>
-              </SelectContent>
-            </Select>
-          }
-        />
       </Group>
       <GroupLabel>App</GroupLabel>
       <Group>
@@ -401,6 +384,74 @@ export function HistorySection() {
           }
         />
       </Group>
+    </>
+  );
+}
+
+const CODING_EXAMPLES: [string, string][] = [
+  ['camel case get user name', 'getUserName'],
+  ['snake case max retries', 'max_retries'],
+  ['pascal case http client', 'HttpClient'],
+  ['constant case api url', 'API_URL'],
+  ['kebab case main nav', 'main-nav'],
+  ['console dot log', 'console.log'],
+];
+
+export function FlowBarSection() {
+  const { settings, update } = useSettings();
+  if (!settings) return <Spinner />;
+  return (
+    <>
+      <SectionTitle>Flow Bar</SectionTitle>
+      <Group>
+        <Row
+          title="Flow Bar position"
+          description="Where the Flow Bar appears while you dictate, on the screen of the app you are using."
+          control={
+            <Select value={settings.flowbar_edge} onValueChange={(v) => update({ flowbar_edge: v as typeof settings.flowbar_edge })}>
+              <SelectTrigger className="w-[150px]" aria-label="Flow Bar position">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bottom">Bottom</SelectItem>
+                <SelectItem value="top">Top</SelectItem>
+                <SelectItem value="left">Left</SelectItem>
+                <SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          }
+        />
+      </Group>
+      <p className="mt-3 text-[13px] leading-5 text-ink-muted">
+        The Flow Bar appears only while you dictate, on the screen of the app you are dictating into. It never takes focus: click ✕ to cancel or ✓ to finish.
+      </p>
+    </>
+  );
+}
+
+export function CodingSection() {
+  const { settings, update } = useSettings();
+  if (!settings) return <Spinner />;
+  return (
+    <>
+      <SectionTitle>Coding</SectionTitle>
+      <Group>
+        <Row
+          title="Coding awareness"
+          description="In code editors (VS Code, Cursor, JetBrains IDEs) and terminals, understand casing commands and code symbols. Terminal commands keep a lowercase first word and get no trailing period."
+          control={<Switch aria-label="Coding awareness" checked={settings.coding_awareness} onCheckedChange={(v) => update({ coding_awareness: v })} />}
+        />
+      </Group>
+      <GroupLabel>Say this</GroupLabel>
+      <Group className={settings.coding_awareness ? '' : 'opacity-50'}>
+        {CODING_EXAMPLES.map(([say, get]) => (
+          <div key={say} className="flex items-center justify-between py-3 text-[14px]">
+            <span className="text-ink-muted">“{say}”</span>
+            <code className="rounded-md bg-white px-2 py-0.5 font-mono text-[13px] text-ink">{get}</code>
+          </div>
+        ))}
+      </Group>
+      <p className="mt-3 text-[13px] leading-5 text-ink-muted">A casing command takes the words after it until a pause, a punctuation mark, or a word like “to” or “then”.</p>
     </>
   );
 }

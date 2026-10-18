@@ -258,6 +258,15 @@ impl Host for TauriHost {
     let app = self.app.clone();
     let session = session.clone();
     let context = self.extras.lock().unwrap().get(&id).and_then(|e| e.context.clone());
+    let kind = self
+      .targets
+      .lock()
+      .unwrap()
+      .get(&id)
+      .cloned()
+      .flatten()
+      .map(|t| textproc::Target::from_process(&t.process))
+      .unwrap_or_default();
     tauri::async_runtime::spawn(async move {
       let sid = id.to_string();
       {
@@ -269,7 +278,7 @@ impl Host for TauriHost {
           );
         }
       }
-      let out = process_text_with(&app, &transcript, false, context.as_deref()).await;
+      let out = process_text_with(&app, &transcript, false, context.as_deref(), kind).await;
       let result = match &out {
         None => Processed::Empty,
         Some(o) => {
@@ -494,10 +503,16 @@ pub async fn process_text_with(
   transcript: &str,
   force_refine: bool,
   context: Option<&str>,
+  target: textproc::Target,
 ) -> Option<ProcessOutput> {
   let s = settings::load(app);
   let lex = lexicon(app);
-  let prepared = textproc::prepare(transcript, &lex, s.smart_formatting);
+  let target = if s.coding_awareness {
+    target
+  } else {
+    textproc::Target::Prose
+  };
+  let prepared = textproc::prepare(transcript, &lex, s.smart_formatting, target);
   // Restoring into the deterministic text cannot fail: it holds every placeholder once.
   let formatted = textproc::finish(&prepared.text, &prepared.expansions).unwrap_or_else(|_| prepared.text.clone());
   if formatted.trim().is_empty() {
@@ -527,6 +542,7 @@ pub async fn process_text_with(
     text: &prepared.text,
     vocabulary: &lex.vocabulary,
     context,
+    code: target.is_code(),
     timeout: if force_refine {
       refine::RETRY_TIMEOUT
     } else {

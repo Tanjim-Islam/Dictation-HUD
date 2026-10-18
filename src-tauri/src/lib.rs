@@ -20,16 +20,13 @@ pub mod settings;
 pub mod target;
 pub mod textproc;
 pub mod transcript;
+pub mod tray;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::{
-  menu::{Menu, MenuItem},
-  tray::TrayIconBuilder,
-  AppHandle, Emitter, Manager, State, WindowEvent,
-};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 
 use session::{Input, SessionHandle, Snapshot, Trigger};
@@ -125,8 +122,39 @@ fn show_main_window(app: &AppHandle) {
   }
 }
 
+/// Remembers the main window size (logical pixels) for the next start.
+fn save_window_size(app: &AppHandle) {
+  let Some(w) = app.get_webview_window("main") else {
+    return;
+  };
+  let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) else {
+    return;
+  };
+  if w.is_maximized().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
+    return;
+  }
+  let logical = size.to_logical::<f64>(scale);
+  let mut s = settings::load(app);
+  let new = Some([logical.width.round() as u32, logical.height.round() as u32]);
+  if s.window_size != new {
+    s.window_size = new;
+    let _ = settings::save(app, &s);
+  }
+}
+
+fn restore_window_size(app: &AppHandle) {
+  let Some([w, h]) = settings::load(app).window_size else {
+    return;
+  };
+  if let Some(win) = app.get_webview_window("main") {
+    let _ = win.set_size(tauri::LogicalSize::new(w as f64, h as f64));
+    let _ = win.center();
+  }
+}
+
 /// Stops any active session safely, then exits.
 fn graceful_exit(app: &AppHandle) {
+  save_window_size(app);
   let app = app.clone();
   tauri::async_runtime::spawn(async move {
     if let Some(session) = app.try_state::<SessionHandle>() {
@@ -135,36 +163,6 @@ fn graceful_exit(app: &AppHandle) {
     tracing::info!("exiting");
     app.exit(0);
   });
-}
-
-fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-  let menu = Menu::new(app)?;
-  menu.append(&MenuItem::with_id(
-    app,
-    "open",
-    "Open Dictation HUD",
-    true,
-    None::<&str>,
-  )?)?;
-  menu.append(&MenuItem::with_id(app, "start", "Start Dictation", true, None::<&str>)?)?;
-  menu.append(&MenuItem::with_id(app, "stop", "Finish Dictation", true, None::<&str>)?)?;
-  menu.append(&MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?)?;
-  TrayIconBuilder::with_id("main")
-    .tooltip("Dictation HUD")
-    .icon(app.default_window_icon().unwrap().clone())
-    .menu(&menu)
-    .on_menu_event(|app, event| {
-      let session = app.state::<SessionHandle>();
-      match event.id.as_ref() {
-        "open" => show_main_window(app),
-        "start" => session.try_send(Input::Start(Trigger::Tray)),
-        "stop" => session.try_send(Input::Finish(Trigger::Tray)),
-        "quit" => graceful_exit(app),
-        _ => {}
-      }
-    })
-    .build(app)?;
-  Ok(())
 }
 
 pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
@@ -221,6 +219,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       target::start_foreground_tracker();
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
       app.manage(session);
+      restore_window_size(app.handle());
       // Launched at login: stay in the tray. Otherwise open the main window.
       if std::env::args().any(|a| a == "--hidden") {
         tracing::info!("started hidden (login launch)");
@@ -228,7 +227,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
         show_main_window(app.handle());
       }
       flowbar::hide(app.handle());
-      build_tray(app)?;
+      tray::build(app, graceful_exit)?;
       hotkey::register_stored(app.handle());
       Ok(())
     })
@@ -237,6 +236,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       if let WindowEvent::CloseRequested { api, .. } = event {
         if window.label() == "main" {
           api.prevent_close();
+          save_window_size(window.app_handle());
           let _ = window.hide();
         }
       }

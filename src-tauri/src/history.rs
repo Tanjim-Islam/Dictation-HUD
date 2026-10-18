@@ -204,7 +204,7 @@ async fn retranscribe(app: &AppHandle, id: &str) -> Result<(), String> {
     }
   };
   db.finish_attempt(attempt, "ok", None, Some(&text)).map_err(db_err)?;
-  let out = process_text_with(app, &text, false, None)
+  let out = process_text_with(app, &text, false, None, crate::textproc::Target::Prose)
     .await
     .ok_or("No speech was found in the recording.")?;
   save_output(&db, id, &text, &out)?;
@@ -240,7 +240,7 @@ pub async fn history_recover(app: AppHandle, busy: State<'_, Busy>, id: String) 
   let r = if has_final {
     db.mark_recovered(&id).map(|_| ()).map_err(db_err)
   } else if !raw.trim().is_empty() {
-    match process_text_with(&app, &raw, false, None).await {
+    match process_text_with(&app, &raw, false, None, crate::textproc::Target::Prose).await {
       Some(out) => save_output(&db, &id, &raw, &out).and_then(|_| db.mark_recovered(&id).map(|_| ()).map_err(db_err)),
       None => Err("There is nothing to recover.".into()),
     }
@@ -269,7 +269,7 @@ pub async fn history_retry_refinement(
     .clone()
     .filter(|t| !t.trim().is_empty())
     .ok_or("There is no transcript to refine.")?;
-  let out = process_text_with(&app, &raw, true, None)
+  let out = process_text_with(&app, &raw, true, None, crate::textproc::Target::Prose)
     .await
     .ok_or("There is no transcript to refine.")?;
   if out.refine_status != "ok" {
