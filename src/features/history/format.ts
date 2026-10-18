@@ -131,6 +131,7 @@ export function rowTag(item: HistoryItem): Tag | null {
   if (item.recovered_from) return { label: 'Recovered', tone: 'accent' };
   if (item.status === 'interrupted') return { label: 'Interrupted', tone: 'warning' };
   if (item.status === 'failed') return { label: 'Failed', tone: 'danger' };
+  if (item.status === 'cancelled') return { label: 'Cancelled', tone: 'neutral' };
   if (item.delivery_status === 'failed') return { label: 'Not delivered', tone: 'danger' };
   if (item.delivery_status === 'copied' && item.delivery_reason && item.delivery_reason !== 'auto_paste_off') return { label: 'Copied', tone: 'neutral' };
   return null;

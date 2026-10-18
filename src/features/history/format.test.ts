@@ -53,6 +53,7 @@ describe('history format', () => {
     expect(needsAttention(item({ status: 'interrupted' }))).toBe(true);
     expect(needsAttention(item({ status: 'completed', recovered_from: 'interrupted' }))).toBe(false);
     expect(rowTag(item({ recovered_from: 'failed' }))?.label).toBe('Recovered');
+    expect(rowTag(item({ status: 'cancelled' }))?.label).toBe('Cancelled');
     expect(rowTag(item({ delivery_status: 'copied', delivery_reason: 'auto_paste_off' }))).toBeNull();
     expect(deliveryLabel(item({ delivery_status: 'pasted', target_app: 'Notepad' }))).toBe('Pasted into Notepad');
     expect(deliveryLabel(item({ delivery_status: 'copied', delivery_reason: 'switched_app' }))).toBe('Copied: you switched apps');
