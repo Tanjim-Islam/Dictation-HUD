@@ -224,9 +224,12 @@ pub fn read_staging(path: &Path) -> Result<Vec<i16>, RecordingError> {
   let mut bytes = Vec::new();
   File::open(path).map_err(io)?.read_to_end(&mut bytes).map_err(io)?;
   Ok(
+    // A trailing odd byte (cut off by a crash mid-write) is ignored.
     bytes
-      .chunks_exact(2)
-      .map(|b| i16::from_le_bytes([b[0], b[1]]))
+      .as_chunks::<2>()
+      .0
+      .iter()
+      .map(|b| i16::from_le_bytes(*b))
       .collect(),
   )
 }
