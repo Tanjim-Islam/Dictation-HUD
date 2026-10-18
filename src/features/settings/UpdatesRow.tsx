@@ -31,7 +31,7 @@ export function UpdatesRow() {
             Install and restart
           </Button>
         ) : (
-          <Button variant="secondary" onClick={checkForUpdates} disabled={s.status === 'checking' || s.status === 'downloading'}>
+          <Button variant="secondary" onClick={() => void checkForUpdates()} disabled={s.status === 'checking' || s.status === 'downloading'}>
             {s.status === 'checking' || s.status === 'downloading' ? <Spinner /> : <RefreshCw strokeWidth={1.75} />}
             Check for updates
           </Button>

@@ -6,7 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsProvider } from '@/features/settings/SettingsContext';
 import { SettingsDialog, type SettingsSectionId } from '@/features/settings/SettingsDialog';
-import { checkForUpdates } from '@/features/settings/updater';
+import { checkForUpdates, startBackgroundChecks } from '@/features/settings/updater';
 import { HistoryPage } from '@/features/history/HistoryPage';
 import { InsightsPage } from '@/features/insights/InsightsPage';
 import { DictionaryPage } from '@/features/dictionary/DictionaryPage';
@@ -34,6 +34,12 @@ export function App() {
   const [sidebar, setSidebar] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [section, setSection] = useState<SettingsSectionId>('general');
+
+  // Look for updates in the background (shown above Settings in the sidebar).
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    return startBackgroundChecks();
+  }, []);
 
   // The tray can open a specific settings section.
   useEffect(() => {

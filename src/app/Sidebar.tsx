@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import { AudioLines, Settings as SettingsIcon } from 'lucide-react';
 import { transition } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import { UpdateNotice } from '@/features/settings/UpdateNotice';
 
 export type NavItem = { id: string; label: string; icon: LucideIcon };
 
@@ -48,6 +49,7 @@ export function Sidebar({
         ))}
       </nav>
       <div className="flex-1" />
+      <UpdateNotice />
       <div className="flex flex-col gap-1 border-t border-border pt-3">
         <NavButton item={{ id: 'settings', label: 'Settings', icon: SettingsIcon }} active={false} onClick={onOpenSettings} />
       </div>
