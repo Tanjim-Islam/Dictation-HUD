@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-elevenlabs-pool-import"
+description = "Enables the elevenlabs_pool_import command without any pre-configured scope."
+commands.allow = ["elevenlabs_pool_import"]
+
+[[permission]]
+identifier = "deny-elevenlabs-pool-import"
+description = "Denies the elevenlabs_pool_import command without any pre-configured scope."
+commands.deny = ["elevenlabs_pool_import"]

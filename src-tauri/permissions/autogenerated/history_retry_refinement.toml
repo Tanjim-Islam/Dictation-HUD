@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-history-retry-refinement"
+description = "Enables the history_retry_refinement command without any pre-configured scope."
+commands.allow = ["history_retry_refinement"]
+
+[[permission]]
+identifier = "deny-history-retry-refinement"
+description = "Denies the history_retry_refinement command without any pre-configured scope."
+commands.deny = ["history_retry_refinement"]

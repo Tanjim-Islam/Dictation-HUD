@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-provider-key"
+description = "Enables the clear_provider_key command without any pre-configured scope."
+commands.allow = ["clear_provider_key"]
+
+[[permission]]
+identifier = "deny-clear-provider-key"
+description = "Denies the clear_provider_key command without any pre-configured scope."
+commands.deny = ["clear_provider_key"]

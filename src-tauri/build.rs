@@ -1,4 +1,54 @@
 fn main() {
-  tauri_build::build()
+  // Declaring app commands makes Tauri require a permission per command, so each window's
+  // capability lists exactly what it may invoke (see capabilities/*.json).
+  let commands: &[&str] = &[
+    "session_intent",
+    "session_snapshot",
+    "set_hotkey",
+    "get_hotkey",
+    "set_autostart",
+    "get_autostart",
+    "get_settings",
+    "update_settings",
+    "providers_overview",
+    "set_provider_key",
+    "clear_provider_key",
+    "test_provider",
+    "list_refine_models",
+    "elevenlabs_pool_view",
+    "elevenlabs_pool_add",
+    "elevenlabs_pool_import",
+    "elevenlabs_pool_remove",
+    "elevenlabs_pool_clear",
+    "elevenlabs_pool_set_multi",
+    "elevenlabs_pool_refresh",
+    "elevenlabs_pool_watch",
+    "audio_devices",
+    "history_list",
+    "history_detail",
+    "history_audio",
+    "history_copy",
+    "history_retry",
+    "history_recover",
+    "history_retry_refinement",
+    "history_export_wav",
+    "history_show_export",
+    "history_delete",
+    "history_storage",
+    "insights",
+    "dictionary_list",
+    "dictionary_add",
+    "dictionary_update",
+    "dictionary_delete",
+    "dictionary_accept",
+    "dictionary_import",
+    "snippets_list",
+    "snippets_add",
+    "snippets_update",
+    "snippets_delete",
+  ];
+  tauri_build::try_build(
+    tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(commands)),
+  )
+  .expect("failed to run tauri-build");
 }
-

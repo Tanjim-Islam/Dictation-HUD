@@ -177,6 +177,534 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the audio_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-devices",
+          "markdownDescription": "Enables the audio_devices command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-provider-key",
+          "markdownDescription": "Enables the clear_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_accept command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-accept",
+          "markdownDescription": "Enables the dictionary_accept command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-add",
+          "markdownDescription": "Enables the dictionary_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-delete",
+          "markdownDescription": "Enables the dictionary_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-import",
+          "markdownDescription": "Enables the dictionary_import command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-list",
+          "markdownDescription": "Enables the dictionary_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictionary_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictionary-update",
+          "markdownDescription": "Enables the dictionary_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-add",
+          "markdownDescription": "Enables the elevenlabs_pool_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-clear",
+          "markdownDescription": "Enables the elevenlabs_pool_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-import",
+          "markdownDescription": "Enables the elevenlabs_pool_import command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-refresh",
+          "markdownDescription": "Enables the elevenlabs_pool_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-remove",
+          "markdownDescription": "Enables the elevenlabs_pool_remove command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_set_multi command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-set-multi",
+          "markdownDescription": "Enables the elevenlabs_pool_set_multi command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-view",
+          "markdownDescription": "Enables the elevenlabs_pool_view command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the elevenlabs_pool_watch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-watch",
+          "markdownDescription": "Enables the elevenlabs_pool_watch command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-autostart",
+          "markdownDescription": "Enables the get_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-hotkey",
+          "markdownDescription": "Enables the get_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-settings",
+          "markdownDescription": "Enables the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-audio",
+          "markdownDescription": "Enables the history_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_copy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-copy",
+          "markdownDescription": "Enables the history_copy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-delete",
+          "markdownDescription": "Enables the history_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-detail",
+          "markdownDescription": "Enables the history_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_export_wav command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-export-wav",
+          "markdownDescription": "Enables the history_export_wav command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-list",
+          "markdownDescription": "Enables the history_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_recover command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-recover",
+          "markdownDescription": "Enables the history_recover command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_retry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-retry",
+          "markdownDescription": "Enables the history_retry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_retry_refinement command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-retry-refinement",
+          "markdownDescription": "Enables the history_retry_refinement command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_show_export command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-show-export",
+          "markdownDescription": "Enables the history_show_export command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the history_storage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-history-storage",
+          "markdownDescription": "Enables the history_storage command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the insights command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-insights",
+          "markdownDescription": "Enables the insights command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_refine_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-refine-models",
+          "markdownDescription": "Enables the list_refine_models command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the providers_overview command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-providers-overview",
+          "markdownDescription": "Enables the providers_overview command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the session_intent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-session-intent",
+          "markdownDescription": "Enables the session_intent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the session_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-session-snapshot",
+          "markdownDescription": "Enables the session_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-autostart",
+          "markdownDescription": "Enables the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-hotkey",
+          "markdownDescription": "Enables the set_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-provider-key",
+          "markdownDescription": "Enables the set_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-add",
+          "markdownDescription": "Enables the snippets_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-delete",
+          "markdownDescription": "Enables the snippets_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-list",
+          "markdownDescription": "Enables the snippets_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snippets_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snippets-update",
+          "markdownDescription": "Enables the snippets_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the test_provider command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-test-provider",
+          "markdownDescription": "Enables the test_provider command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-settings",
+          "markdownDescription": "Enables the update_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-devices",
+          "markdownDescription": "Denies the audio_devices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-provider-key",
+          "markdownDescription": "Denies the clear_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_accept command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-accept",
+          "markdownDescription": "Denies the dictionary_accept command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-add",
+          "markdownDescription": "Denies the dictionary_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-delete",
+          "markdownDescription": "Denies the dictionary_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-import",
+          "markdownDescription": "Denies the dictionary_import command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-list",
+          "markdownDescription": "Denies the dictionary_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictionary_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictionary-update",
+          "markdownDescription": "Denies the dictionary_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-add",
+          "markdownDescription": "Denies the elevenlabs_pool_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-clear",
+          "markdownDescription": "Denies the elevenlabs_pool_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-import",
+          "markdownDescription": "Denies the elevenlabs_pool_import command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-refresh",
+          "markdownDescription": "Denies the elevenlabs_pool_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-remove",
+          "markdownDescription": "Denies the elevenlabs_pool_remove command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_set_multi command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-set-multi",
+          "markdownDescription": "Denies the elevenlabs_pool_set_multi command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-view",
+          "markdownDescription": "Denies the elevenlabs_pool_view command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_watch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-watch",
+          "markdownDescription": "Denies the elevenlabs_pool_watch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-autostart",
+          "markdownDescription": "Denies the get_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-hotkey",
+          "markdownDescription": "Denies the get_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-settings",
+          "markdownDescription": "Denies the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-audio",
+          "markdownDescription": "Denies the history_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_copy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-copy",
+          "markdownDescription": "Denies the history_copy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-delete",
+          "markdownDescription": "Denies the history_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-detail",
+          "markdownDescription": "Denies the history_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_export_wav command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-export-wav",
+          "markdownDescription": "Denies the history_export_wav command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-list",
+          "markdownDescription": "Denies the history_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_recover command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-recover",
+          "markdownDescription": "Denies the history_recover command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_retry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-retry",
+          "markdownDescription": "Denies the history_retry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_retry_refinement command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-retry-refinement",
+          "markdownDescription": "Denies the history_retry_refinement command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_show_export command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-show-export",
+          "markdownDescription": "Denies the history_show_export command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the history_storage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-history-storage",
+          "markdownDescription": "Denies the history_storage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the insights command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-insights",
+          "markdownDescription": "Denies the insights command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_refine_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-refine-models",
+          "markdownDescription": "Denies the list_refine_models command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the providers_overview command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-providers-overview",
+          "markdownDescription": "Denies the providers_overview command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the session_intent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-session-intent",
+          "markdownDescription": "Denies the session_intent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the session_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-session-snapshot",
+          "markdownDescription": "Denies the session_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-autostart",
+          "markdownDescription": "Denies the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_hotkey command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-hotkey",
+          "markdownDescription": "Denies the set_hotkey command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_provider_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-provider-key",
+          "markdownDescription": "Denies the set_provider_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-add",
+          "markdownDescription": "Denies the snippets_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-delete",
+          "markdownDescription": "Denies the snippets_delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-list",
+          "markdownDescription": "Denies the snippets_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snippets_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snippets-update",
+          "markdownDescription": "Denies the snippets_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the test_provider command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-test-provider",
+          "markdownDescription": "Denies the test_provider command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-settings",
+          "markdownDescription": "Denies the update_settings command without any pre-configured scope."
+        },
+        {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
           "type": "string",
           "const": "autostart:default",
@@ -2533,144 +3061,6 @@
           "type": "string",
           "const": "store:deny-values",
           "markdownDescription": "Denies the values command without any pre-configured scope."
-        },
-        {
-          "description": "This permission set configures what kind of\noperations are available from the stronghold plugin.\n\n#### Granted Permissions\n\nAll non-destructive operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-create-client`\n- `allow-get-store-record`\n- `allow-initialize`\n- `allow-execute-procedure`\n- `allow-load-client`\n- `allow-save-secret`\n- `allow-save-store-record`\n- `allow-save`",
-          "type": "string",
-          "const": "stronghold:default",
-          "markdownDescription": "This permission set configures what kind of\noperations are available from the stronghold plugin.\n\n#### Granted Permissions\n\nAll non-destructive operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-create-client`\n- `allow-get-store-record`\n- `allow-initialize`\n- `allow-execute-procedure`\n- `allow-load-client`\n- `allow-save-secret`\n- `allow-save-store-record`\n- `allow-save`"
-        },
-        {
-          "description": "Enables the create_client command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-create-client",
-          "markdownDescription": "Enables the create_client command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the destroy command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-destroy",
-          "markdownDescription": "Enables the destroy command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the execute_procedure command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-execute-procedure",
-          "markdownDescription": "Enables the execute_procedure command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the get_store_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-get-store-record",
-          "markdownDescription": "Enables the get_store_record command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the initialize command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-initialize",
-          "markdownDescription": "Enables the initialize command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the load_client command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-load-client",
-          "markdownDescription": "Enables the load_client command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the remove_secret command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-remove-secret",
-          "markdownDescription": "Enables the remove_secret command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the remove_store_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-remove-store-record",
-          "markdownDescription": "Enables the remove_store_record command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the save command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-save",
-          "markdownDescription": "Enables the save command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the save_secret command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-save-secret",
-          "markdownDescription": "Enables the save_secret command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the save_store_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:allow-save-store-record",
-          "markdownDescription": "Enables the save_store_record command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the create_client command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-create-client",
-          "markdownDescription": "Denies the create_client command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the destroy command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-destroy",
-          "markdownDescription": "Denies the destroy command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the execute_procedure command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-execute-procedure",
-          "markdownDescription": "Denies the execute_procedure command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the get_store_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-get-store-record",
-          "markdownDescription": "Denies the get_store_record command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the initialize command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-initialize",
-          "markdownDescription": "Denies the initialize command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the load_client command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-load-client",
-          "markdownDescription": "Denies the load_client command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the remove_secret command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-remove-secret",
-          "markdownDescription": "Denies the remove_secret command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the remove_store_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-remove-store-record",
-          "markdownDescription": "Denies the remove_store_record command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the save command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-save",
-          "markdownDescription": "Denies the save command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the save_secret command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-save-secret",
-          "markdownDescription": "Denies the save_secret command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the save_store_record command without any pre-configured scope.",
-          "type": "string",
-          "const": "stronghold:deny-save-store-record",
-          "markdownDescription": "Denies the save_store_record command without any pre-configured scope."
         },
         {
           "description": "This permission set configures which kind of\nupdater functions are exposed to the frontend.\n\n#### Granted Permissions\n\nThe full workflow from checking for updates to installing them\nis enabled.\n\n\n#### This default permission set includes:\n\n- `allow-check`\n- `allow-download`\n- `allow-install`\n- `allow-download-and-install`",

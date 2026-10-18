@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-elevenlabs-pool-set-multi"
+description = "Enables the elevenlabs_pool_set_multi command without any pre-configured scope."
+commands.allow = ["elevenlabs_pool_set_multi"]
+
+[[permission]]
+identifier = "deny-elevenlabs-pool-set-multi"
+description = "Denies the elevenlabs_pool_set_multi command without any pre-configured scope."
+commands.deny = ["elevenlabs_pool_set_multi"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-elevenlabs-pool-remove"
+description = "Enables the elevenlabs_pool_remove command without any pre-configured scope."
+commands.allow = ["elevenlabs_pool_remove"]
+
+[[permission]]
+identifier = "deny-elevenlabs-pool-remove"
+description = "Denies the elevenlabs_pool_remove command without any pre-configured scope."
+commands.deny = ["elevenlabs_pool_remove"]

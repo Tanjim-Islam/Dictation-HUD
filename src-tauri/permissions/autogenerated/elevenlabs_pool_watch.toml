@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-elevenlabs-pool-watch"
+description = "Enables the elevenlabs_pool_watch command without any pre-configured scope."
+commands.allow = ["elevenlabs_pool_watch"]
+
+[[permission]]
+identifier = "deny-elevenlabs-pool-watch"
+description = "Denies the elevenlabs_pool_watch command without any pre-configured scope."
+commands.deny = ["elevenlabs_pool_watch"]

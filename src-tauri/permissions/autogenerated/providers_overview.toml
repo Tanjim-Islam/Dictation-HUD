@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-providers-overview"
+description = "Enables the providers_overview command without any pre-configured scope."
+commands.allow = ["providers_overview"]
+
+[[permission]]
+identifier = "deny-providers-overview"
+description = "Denies the providers_overview command without any pre-configured scope."
+commands.deny = ["providers_overview"]

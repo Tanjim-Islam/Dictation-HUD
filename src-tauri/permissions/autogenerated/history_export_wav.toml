@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-history-export-wav"
+description = "Enables the history_export_wav command without any pre-configured scope."
+commands.allow = ["history_export_wav"]
+
+[[permission]]
+identifier = "deny-history-export-wav"
+description = "Denies the history_export_wav command without any pre-configured scope."
+commands.deny = ["history_export_wav"]

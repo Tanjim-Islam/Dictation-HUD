@@ -5,4 +5,3 @@ fn main() {
   let context = tauri::generate_context!();
   dictation_hud::run(context).expect("error while running tauri application");
 }
-

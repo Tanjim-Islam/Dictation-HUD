@@ -1,29 +1,82 @@
-@import "@fontsource/geist-mono/400.css";
-@import "@fontsource/geist-mono/600.css";
+@import '@fontsource-variable/figtree/index.css';
+@import '@fontsource/eb-garamond/400.css';
+@import '@fontsource/eb-garamond/500.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens (RGB channels so Tailwind can apply alpha). Light palette sampled from the
+   reference design: warm off-white frame, near-white content panel, beige surfaces. */
 :root {
-  --bg: #171717;
-  --fg: #f2f1ea;
-  --muted: #c9c7bf;
-  --card: #1f1f1f;
-  --accent: #e5e2d6;
+  --frame: 245 244 240;
+  --panel: 252 252 251;
+  --surface: 245 244 240;
+  --surface-strong: 238 235 227;
+  --border: 238 235 227;
+  --ink: 26 26 26;
+  --ink-muted: 108 107 106;
+  --ink-faint: 120 118 114;
+  --track: 197 192 179;
+  --accent: 26 92 92;
+  --accent-soft: 214 236 233;
+  --danger: 185 38 38;
+  --danger-soft: 251 233 233;
+  --success: 20 112 73;
+  --success-soft: 209 250 229;
+  --warning: 142 86 6;
+  --warning-soft: 254 243 199;
+  color-scheme: light;
 }
 
-html, body, #root { height: 100%; }
-body { background: transparent; color: var(--fg); }
-body[data-window="settings"] { background: var(--bg); }
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-transparent font-sans text-base text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body[data-window='main'] {
+    @apply bg-frame;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-ink/70 ring-offset-1 ring-offset-panel;
+  }
+  ::selection {
+    background: rgb(var(--accent) / 0.18);
+  }
+  button {
+    @apply select-none;
+  }
+}
 
-/* Minimal scrollbar tweak */
-* { scrollbar-width: thin; scrollbar-color: #333 #171717; }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+/* Thin, quiet scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--track) / 0.7) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--track) / 0.6);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 
-
-html { background: transparent; }
-
-#root { background: transparent; }
-
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
