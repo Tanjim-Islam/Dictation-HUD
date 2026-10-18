@@ -17,6 +17,7 @@ fn main() {
     "list_refine_models",
     "elevenlabs_pool_view",
     "elevenlabs_pool_add",
+    "elevenlabs_pool_import",
     "elevenlabs_pool_remove",
     "elevenlabs_pool_clear",
     "elevenlabs_pool_set_multi",

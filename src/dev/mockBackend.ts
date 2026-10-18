@@ -149,6 +149,14 @@ export function installMockBackend() {
         recompute();
         return delay(pool, 600) as Promise<T>;
       }
+      case 'elevenlabs_pool_import': {
+        const keys = [...new Set(String(args.text).match(/sk_[A-Za-z0-9]{20,}/g) ?? [])];
+        const take = pool.multi ? keys : keys.slice(0, 1);
+        for (const _ of take) pool.keys.push({ id: String(Date.now() + Math.random()), label: '', status: 'usable', remaining: 10000, limit: 10000, last_checked_ms: Date.now(), last_error: null, active: true });
+        recompute();
+        if (!keys.length) return Promise.reject(new Error('No ElevenLabs API keys found in the pasted text'));
+        return delay({ report: { found: keys.length, added: take.length, duplicates: 0, rejected: 0, unverified: 0, failed: 0, multi: pool.multi }, view: pool }, 800) as Promise<T>;
+      }
       case 'elevenlabs_pool_remove':
         pool.keys = pool.keys.filter((k) => k.id !== args.id);
         recompute();

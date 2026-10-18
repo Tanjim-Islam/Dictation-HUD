@@ -149,6 +149,16 @@ export type Insights = {
   days: [number, number][];
 };
 
+export type ImportReport = {
+  found: number;
+  added: number;
+  duplicates: number;
+  rejected: number;
+  unverified: number;
+  failed: number;
+  multi: boolean;
+};
+
 export type TestResult = { ok: boolean; message: string };
 export type AudioDevice = { id: string; name: string; is_default: boolean };
 
@@ -171,6 +181,7 @@ export const api = {
   pool: {
     view: () => invoke<PoolView>('elevenlabs_pool_view'),
     add: (secret: string) => invoke<PoolView>('elevenlabs_pool_add', { secret }),
+    importText: (text: string) => invoke<{ report: ImportReport; view: PoolView }>('elevenlabs_pool_import', { text }),
     remove: (id: string) => invoke<PoolView>('elevenlabs_pool_remove', { id }),
     clear: () => invoke<PoolView>('elevenlabs_pool_clear'),
     setMulti: (multi: boolean) => invoke<PoolView>('elevenlabs_pool_set_multi', { multi }),

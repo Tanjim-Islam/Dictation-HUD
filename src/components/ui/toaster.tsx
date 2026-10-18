@@ -4,6 +4,8 @@ export function Toaster() {
   return (
     <Sonner
       position="bottom-right"
+      // Modal dialogs disable pointer events outside themselves; toasts must stay clickable.
+      style={{ pointerEvents: 'auto' }}
       gap={8}
       offset={20}
       toastOptions={{

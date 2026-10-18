@@ -12,7 +12,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::audio::{self, DeviceInfo};
 use crate::credentials::names;
-use crate::providers::elevenlabs_pool::{KeyStatus, PoolView};
+use crate::providers::elevenlabs_pool::{ImportReport, KeyStatus, PoolView};
 use crate::providers::ProviderDescriptor;
 use crate::refine;
 use crate::services::{dev_env, KeySource, Services};
@@ -288,8 +288,28 @@ pub async fn elevenlabs_pool_view(services: State<'_, Services>) -> Result<PoolV
 
 #[tauri::command]
 pub async fn elevenlabs_pool_add(services: State<'_, Services>, secret: String) -> Result<PoolView, String> {
-  services.pool.add(&secret).await.map_err(|e| e.to_string())?;
+  services.pool.add_for_mode(&secret).await.map_err(|e| e.to_string())?;
   Ok(services.pool.view())
+}
+
+#[derive(Serialize)]
+pub struct PoolImport {
+  pub report: ImportReport,
+  pub view: PoolView,
+}
+
+/// Adds ElevenLabs keys from pasted text (for example a block of `NAME=key` lines). Keys cross
+/// to Rust once and are never returned; the result holds counts only.
+#[tauri::command]
+pub async fn elevenlabs_pool_import(services: State<'_, Services>, text: String) -> Result<PoolImport, String> {
+  let report = services.pool.import_text(&text).await;
+  if report.found == 0 {
+    return Err("No ElevenLabs API keys found in the pasted text".into());
+  }
+  Ok(PoolImport {
+    report,
+    view: services.pool.view(),
+  })
 }
 
 #[tauri::command]

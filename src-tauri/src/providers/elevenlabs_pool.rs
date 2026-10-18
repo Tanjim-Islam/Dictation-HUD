@@ -190,6 +190,45 @@ impl std::fmt::Display for AddError {
   }
 }
 
+/// Result of adding keys from pasted text. Counts only; never contains a key.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct ImportReport {
+  /// Keys recognized in the text.
+  pub found: usize,
+  pub added: usize,
+  pub duplicates: usize,
+  pub rejected: usize,
+  pub unverified: usize,
+  pub failed: usize,
+  /// Whether Multiple APIs was on (otherwise only the first key was used).
+  pub multi: bool,
+}
+
+/// Finds ElevenLabs API keys in pasted text, in order and without duplicates. Accepts any mix
+/// of `NAME=key`, `export NAME="key"`, `NAME: key`, comma or line separated, or bare keys; the
+/// variable names are ignored. A key is `sk_` followed by 20+ letters or digits, or a legacy
+/// 32-character hex key. If nothing matches, a single bare token is taken as one key.
+pub fn parse_keys(text: &str) -> Vec<String> {
+  let is_token = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+  let looks_like_key = |t: &str| {
+    (t.starts_with("sk_") && t.len() >= 23 && t[3..].chars().all(|c| c.is_ascii_alphanumeric()))
+      || (t.len() == 32 && t.chars().all(|c| c.is_ascii_hexdigit()))
+  };
+  let mut out: Vec<String> = Vec::new();
+  for token in text.split(|c: char| !is_token(c)).filter(|t| !t.is_empty()) {
+    if looks_like_key(token) && !out.iter().any(|k| k == token) {
+      out.push(token.to_string());
+    }
+  }
+  if out.is_empty() {
+    let trimmed = text.trim().trim_matches(|c| c == '"' || c == '\'');
+    if !trimmed.is_empty() && !trimmed.contains(char::is_whitespace) && !trimmed.contains('=') {
+      out.push(trimmed.to_string());
+    }
+  }
+  out
+}
+
 /// A key handed to a session. Must be released with the outcome.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lease {
@@ -331,7 +370,8 @@ impl ElevenLabsPool {
     };
     match self.api.fetch(secret.clone()).await {
       Ok(c) => apply_credits(&mut entry, &c, now),
-      Err(FetchError::Status(401)) => return Err(AddError::Invalid),
+      // ElevenLabs answers 400 for a malformed key and 401 for an unknown one.
+      Err(FetchError::Status(400 | 401)) => return Err(AddError::Invalid),
       Err(FetchError::Status(403)) => {
         entry.status = KeyStatus::NoCreditAccess;
         entry.last_checked_ms = Some(now);
@@ -384,6 +424,75 @@ impl ElevenLabsPool {
     drop(data);
     self.commit(&snapshot);
     Ok(())
+  }
+
+  /// Moves a key to the front. In single-key mode the first key is the one used, so a newly
+  /// added key replaces the active one while older keys stay saved for Multiple APIs.
+  pub fn promote(&self, id: &str) {
+    let mut data = self.data.lock().unwrap();
+    let Some(pos) = data.keys.iter().position(|k| k.id == id) else {
+      return;
+    };
+    let entry = data.keys.remove(pos);
+    data.keys.insert(0, entry);
+    let snapshot = data.clone();
+    drop(data);
+    self.commit(&snapshot);
+  }
+
+  /// Adds a key; in single-key mode it becomes the active (first) key.
+  pub async fn add_for_mode(&self, secret: &str) -> Result<(), AddError> {
+    let key = self.add(secret).await?;
+    if !self.data.lock().unwrap().multi {
+      self.promote(&key.id);
+    }
+    Ok(())
+  }
+
+  /// Adds keys found in pasted text (one or many, any `NAME=value` style). With Multiple APIs on,
+  /// every key is added; otherwise only the first, which becomes the active key.
+  pub async fn import_text(&self, text: &str) -> ImportReport {
+    let keys = parse_keys(text);
+    let multi = self.data.lock().unwrap().multi;
+    let mut report = ImportReport {
+      found: keys.len(),
+      multi,
+      ..Default::default()
+    };
+    let take = if multi { keys.len() } else { keys.len().min(1) };
+    for key in keys.iter().take(take) {
+      match self.add_for_mode(key).await {
+        Ok(()) => report.added += 1,
+        Err(AddError::Duplicate) => report.duplicates += 1,
+        Err(AddError::Invalid) => report.rejected += 1,
+        Err(AddError::Unverified) => report.unverified += 1,
+        Err(AddError::Store(_)) | Err(AddError::Empty) => report.failed += 1,
+      }
+    }
+    // In single mode a pasted key that is already saved still becomes the active one.
+    if !multi && report.duplicates == 1 {
+      if let Some(id) = self.id_of(&keys[0]) {
+        self.promote(&id);
+      }
+    }
+    tracing::info!(
+      provider = "elevenlabs",
+      found = report.found,
+      added = report.added,
+      duplicates = report.duplicates,
+      rejected = report.rejected,
+      unverified = report.unverified,
+      multi,
+      "pool keys imported"
+    );
+    report
+  }
+
+  fn id_of(&self, secret: &str) -> Option<String> {
+    let ids: Vec<String> = self.data.lock().unwrap().keys.iter().map(|k| k.id.clone()).collect();
+    ids
+      .into_iter()
+      .find(|id| self.secrets.get(&names::elevenlabs(id)).as_deref() == Some(secret))
   }
 
   pub fn remove(&self, id: &str) -> Result<(), String> {
@@ -542,7 +651,7 @@ impl ElevenLabsPool {
     };
     match result {
       Ok(c) => apply_credits(k, &c, now),
-      Err(FetchError::Status(401)) => {
+      Err(FetchError::Status(400 | 401)) => {
         k.status = KeyStatus::Invalid;
         k.last_error = Some("Rejected by ElevenLabs".into());
         k.last_checked_ms = Some(now);
@@ -704,6 +813,90 @@ mod tests {
       assert_eq!(p.add(" good ").await, Err(AddError::Duplicate));
     });
     assert_eq!(p.view().keys.len(), 1);
+  }
+
+  #[test]
+  fn parse_keys_from_env_style_paste() {
+    let k = |n: u8| format!("sk_{}", format!("{n:02}").repeat(16));
+    let text = format!(
+      "ELEVENLABS_API_KEY_1={}\r\nELEVENLABS_API_KEY_2 = \"{}\"\nexport OTHER_NAME='{}'\nkey3: {}, {}\n\n# comment\nELEVENLABS_API_KEY_1={}",
+      k(1), k(2), k(3), k(4), k(5), k(1)
+    );
+    assert_eq!(
+      parse_keys(&text),
+      vec![k(1), k(2), k(3), k(4), k(5)],
+      "names ignored, order kept, duplicate dropped"
+    );
+    let hex = "0123456789abcdef0123456789abcdef";
+    assert_eq!(
+      parse_keys(&format!("XI_KEY={hex}")),
+      vec![hex.to_string()],
+      "legacy hex keys"
+    );
+    assert_eq!(
+      parse_keys("  some-odd-key  "),
+      vec!["some-odd-key".to_string()],
+      "single bare token"
+    );
+    assert!(parse_keys("ELEVENLABS_API_KEY=").is_empty());
+    assert!(parse_keys("not a key at all").is_empty());
+  }
+
+  #[test]
+  fn import_adds_all_in_multi_and_first_in_single() {
+    let api = Arc::new(FakeApi::default());
+    let keys: Vec<String> = (1..=4)
+      .map(|n| format!("sk_{}", format!("{n:02}").repeat(16)))
+      .collect();
+    for key in &keys {
+      api.set(key, credits(0, 10_000));
+    }
+    api.set(&format!("sk_{}", "99".repeat(16)), Err(FetchError::Status(400)));
+    let text: String = keys
+      .iter()
+      .enumerate()
+      .map(|(i, key)| format!("ELEVENLABS_API_KEY_{}={key}\n", i + 1))
+      .collect();
+    let p = pool(api.clone());
+
+    // Single mode: only the first key, and it becomes the active one.
+    run(p.add(&format!("sk_{}", "50".repeat(16)))).ok();
+    let r = run(p.import_text(&text));
+    assert_eq!((r.found, r.added, r.multi), (4, 1, false));
+    assert_eq!(p.view().keys.len(), 1, "the unverifiable key was not stored");
+    assert_eq!(
+      p.id_of(&keys[0]),
+      Some(p.view().keys[0].id.clone()),
+      "first pasted key is active"
+    );
+
+    // Multi mode: the rest are added; the already saved first key counts as a duplicate.
+    p.set_multi(true);
+    let bad = format!("\nBAD=sk_{}", "99".repeat(16));
+    let r = run(p.import_text(&(text.clone() + &bad)));
+    assert_eq!(
+      (r.found, r.added, r.duplicates, r.rejected, r.multi),
+      (5, 3, 1, 1, true)
+    );
+    assert_eq!(p.view().keys.len(), 4);
+  }
+
+  #[test]
+  fn single_mode_add_replaces_the_active_key() {
+    let api = Arc::new(FakeApi::default());
+    api.set("old", credits(0, 10_000));
+    api.set("new", credits(5_000, 10_000));
+    let p = pool(api);
+    run(async {
+      p.add_for_mode("old").await.unwrap();
+      p.add_for_mode("new").await.unwrap();
+    });
+    let v = p.view();
+    assert_eq!(v.keys.len(), 2, "the old key stays saved");
+    assert_eq!(v.total_remaining, 5_000, "single mode now uses the new key");
+    // A pasted key that is already saved becomes active again.
+    run(p.import_text("old"));
+    assert_eq!(p.view().total_remaining, 10_000);
   }
 
   #[test]

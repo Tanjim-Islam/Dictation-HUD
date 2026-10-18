@@ -30,6 +30,7 @@
     "allow-list-refine-models",
     "allow-elevenlabs-pool-view",
     "allow-elevenlabs-pool-add",
+    "allow-elevenlabs-pool-import",
     "allow-elevenlabs-pool-remove",
     "allow-elevenlabs-pool-clear",
     "allow-elevenlabs-pool-set-multi",

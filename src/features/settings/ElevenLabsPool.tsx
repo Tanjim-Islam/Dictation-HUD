@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { api, errorMessage, onPoolChange, type KeyStatus, type PoolKey, type PoolView } from '@/lib/api';
+import { importPasted, looksLikeKeyBlock } from './elevenlabs-import';
 import { transition } from '@/lib/motion';
 import { cn, formatNumber } from '@/lib/utils';
 
@@ -89,7 +90,7 @@ function KeyRow({ k, onRemove }: { k: PoolKey; onRemove: (id: string) => void })
   );
 }
 
-function AddKeyForm({ onDone, autoFocus, cancellable = true }: { onDone: () => void; autoFocus?: boolean; cancellable?: boolean }) {
+function AddKeyForm({ onDone, autoFocus, cancellable = true, multi }: { onDone: () => void; autoFocus?: boolean; cancellable?: boolean; multi: boolean }) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
@@ -120,11 +121,21 @@ function AddKeyForm({ onDone, autoFocus, cancellable = true }: { onDone: () => v
           spellCheck={false}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (!looksLikeKeyBlock(text)) return;
+            // A block of keys never lands in the field: it goes straight to Rust.
+            e.preventDefault();
+            setBusy(true);
+            importPasted(text, onDone)
+              .catch((err) => toast.error('Keys not added', { description: errorMessage(err) }))
+              .finally(() => setBusy(false));
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && value.trim()) add();
             if (e.key === 'Escape') onDone();
           }}
-          placeholder="Paste an ElevenLabs API key"
+          placeholder={multi ? 'Paste one or more ElevenLabs API keys' : 'Paste an ElevenLabs API key'}
           aria-label="New ElevenLabs API key"
           className="pl-9"
         />
@@ -239,7 +250,7 @@ export function ElevenLabsPool() {
             </ul>
           )}
           {!hasKeys || adding ? (
-            <AddKeyForm onDone={() => setAdding(false)} autoFocus={adding} cancellable={hasKeys} />
+            <AddKeyForm onDone={() => setAdding(false)} autoFocus={adding} cancellable={hasKeys} multi={pool.multi} />
           ) : (
             <div className="flex items-center gap-2">
               <Button variant="secondary" onClick={() => setAdding(true)}>
@@ -263,7 +274,7 @@ export function ElevenLabsPool() {
           <AnimatePresence initial={false} mode="popLayout">
             {adding || !hasKeys ? (
               <motion.div key="form" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={transition.base}>
-                <AddKeyForm onDone={() => setAdding(false)} autoFocus={adding} cancellable={hasKeys} />
+                <AddKeyForm onDone={() => setAdding(false)} autoFocus={adding} cancellable={hasKeys} multi={pool.multi} />
               </motion.div>
             ) : (
               <motion.div key="actions" layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center justify-between gap-2">

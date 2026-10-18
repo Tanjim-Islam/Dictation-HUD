@@ -250,6 +250,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       commands::list_refine_models,
       commands::elevenlabs_pool_view,
       commands::elevenlabs_pool_add,
+      commands::elevenlabs_pool_import,
       commands::elevenlabs_pool_remove,
       commands::elevenlabs_pool_clear,
       commands::elevenlabs_pool_set_multi,

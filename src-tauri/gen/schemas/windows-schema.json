@@ -237,6 +237,12 @@
           "markdownDescription": "Enables the elevenlabs_pool_clear command without any pre-configured scope."
         },
         {
+          "description": "Enables the elevenlabs_pool_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-elevenlabs-pool-import",
+          "markdownDescription": "Enables the elevenlabs_pool_import command without any pre-configured scope."
+        },
+        {
           "description": "Enables the elevenlabs_pool_refresh command without any pre-configured scope.",
           "type": "string",
           "const": "allow-elevenlabs-pool-refresh",
@@ -493,6 +499,12 @@
           "type": "string",
           "const": "deny-elevenlabs-pool-clear",
           "markdownDescription": "Denies the elevenlabs_pool_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the elevenlabs_pool_import command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-elevenlabs-pool-import",
+          "markdownDescription": "Denies the elevenlabs_pool_import command without any pre-configured scope."
         },
         {
           "description": "Denies the elevenlabs_pool_refresh command without any pre-configured scope.",

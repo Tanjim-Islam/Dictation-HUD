@@ -5,7 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { AppWindow, AudioLines, Code2, History, Info, Mic, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { getVersion } from '@tauri-apps/api/app';
 import { transition } from '@/lib/motion';
-import { cn } from '@/lib/utils';
+import { cn, keepToastsInteractive } from '@/lib/utils';
 import { AboutSection, AudioSection, CodingSection, FlowBarSection, GeneralSection, HistorySection, PrivacySection, RefinementSection, SpeechSection } from './sections';
 
 export type SettingsSectionId = 'general' | 'audio' | 'speech' | 'refinement' | 'flowbar' | 'coding' | 'privacy' | 'history' | 'about';
@@ -45,6 +45,7 @@ export function SettingsDialog({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/25 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
+          onInteractOutside={keepToastsInteractive}
           className="fixed left-1/2 top-1/2 z-40 flex h-[min(640px,calc(100vh-96px))] w-[min(960px,calc(100vw-96px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-white shadow-dialog outline-none data-[state=open]:animate-dialog-in data-[state=closed]:animate-dialog-out"
         >
           <DialogPrimitive.Title className="sr-only">Settings</DialogPrimitive.Title>
