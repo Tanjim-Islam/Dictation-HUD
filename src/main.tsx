@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './styles/globals.css';
 import { App } from './app/App';
 import { FlowBar } from './windows/flowbar/FlowBar';
+import { applyCachedTheme } from './lib/theme';
 
 // Legacy mirror of audio flags; settings are owned by Rust now.
 try {
@@ -13,6 +14,8 @@ try {
 
 const isFlowBar = window.location.hash.includes('flowbar');
 document.body.setAttribute('data-window', isFlowBar ? 'flowbar' : 'main');
+// The Flow Bar is always dark; the main window follows the Theme setting.
+if (!isFlowBar) applyCachedTheme();
 
 async function start() {
   // Browser preview (no Tauri): mock the backend so the UI can be inspected in isolation.

@@ -29,6 +29,7 @@ const STATUS: Record<KeyStatus, { label: string; tone: Tone }> = {
   cooldown: { label: 'Cooling down', tone: 'warning' },
   error: { label: 'Error', tone: 'danger' },
   no_credit_access: { label: 'Credits hidden', tone: 'neutral' },
+  refused: { label: 'Refused', tone: 'warning' },
 };
 
 function credits(k: PoolKey) {
@@ -214,7 +215,7 @@ export function ElevenLabsPool() {
       </div>
 
       {hasKeys && (
-        <div className="rounded-xl border border-border bg-white px-4 py-3">
+        <div className="rounded-xl border border-border bg-card px-4 py-3">
           <div className="flex items-baseline gap-2">
             <span className="text-[13px] font-medium text-ink-muted">{pool.multi ? 'Combined credits' : 'Credits'}</span>
             <span className="ml-auto flex items-center gap-1.5 text-xs text-ink-faint">
@@ -245,7 +246,7 @@ export function ElevenLabsPool() {
       {!pool.multi ? (
         <div className="flex flex-col gap-2">
           {hasKeys && (
-            <ul className="divide-y divide-border rounded-xl border border-border bg-white">
+            <ul className="divide-y divide-border rounded-xl border border-border bg-card">
               <KeyRow k={pool.keys[0]} onRemove={remove} />
             </ul>
           )}
@@ -263,7 +264,7 @@ export function ElevenLabsPool() {
       ) : (
         <div className="flex flex-col gap-2">
           {hasKeys && (
-            <ul className="max-h-[248px] divide-y divide-border overflow-y-auto overscroll-contain rounded-xl border border-border bg-white">
+            <ul className="max-h-[248px] divide-y divide-border overflow-y-auto overscroll-contain rounded-xl border border-border bg-card">
               <AnimatePresence initial={false}>
                 {pool.keys.map((k) => (
                   <KeyRow key={k.id} k={k} onRemove={remove} />

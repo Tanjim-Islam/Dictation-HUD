@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Copy, Minus, PanelLeft, Square, X } from 'lucide-react';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { ThemeMenu } from './ThemeMenu';
 
 const inTauri = '__TAURI_INTERNALS__' in window;
 
@@ -60,6 +61,9 @@ export function TitleBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
         </Tooltip>
       </div>
       <div className="flex-1" data-tauri-drag-region />
+      <div className="flex items-center pr-2">
+        <ThemeMenu />
+      </div>
       <div className="flex items-stretch">
         <CaptionButton label="Minimize" onClick={() => win?.minimize()}>
           <Minus className="size-4" />

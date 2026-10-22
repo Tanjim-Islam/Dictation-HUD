@@ -42,11 +42,11 @@ export function SettingsDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/25 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/25 dark:bg-black/55 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
           onInteractOutside={keepToastsInteractive}
-          className="fixed left-1/2 top-1/2 z-40 flex h-[min(640px,calc(100vh-96px))] w-[min(960px,calc(100vw-96px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-white shadow-dialog outline-none data-[state=open]:animate-dialog-in data-[state=closed]:animate-dialog-out"
+          className="fixed left-1/2 top-1/2 z-40 flex h-[min(640px,calc(100vh-96px))] w-[min(960px,calc(100vw-96px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-card shadow-dialog outline-none data-[state=open]:animate-dialog-in data-[state=closed]:animate-dialog-out"
         >
           <DialogPrimitive.Title className="sr-only">Settings</DialogPrimitive.Title>
           <nav className="flex w-[210px] shrink-0 flex-col bg-surface px-2 pb-3 pt-6" aria-label="Settings sections">

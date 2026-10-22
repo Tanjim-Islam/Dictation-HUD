@@ -84,7 +84,9 @@ fn provider_message(e: &ProviderError) -> String {
     ProviderError::MissingKey => "Add an API key for the speech provider in Settings.".into(),
     ProviderError::Auth => "The speech provider rejected the API key.".into(),
     ProviderError::RateLimited => "The speech provider is rate limiting requests. Try again shortly.".into(),
-    ProviderError::QuotaExceeded => "The speech provider account is out of credits.".into(),
+    ProviderError::QuotaExceeded => {
+      "The speech provider refused the request for quota or credits. Check the keys in Settings.".into()
+    }
     ProviderError::Network => "Could not reach the speech provider.".into(),
     ProviderError::Timeout => "The speech provider took too long to answer.".into(),
     ProviderError::Unsupported(what) => format!("Not supported: {what}."),

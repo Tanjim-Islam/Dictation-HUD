@@ -2,6 +2,7 @@ pub mod app_host;
 pub mod audio;
 pub mod commands;
 pub mod credentials;
+pub mod cues;
 pub mod db;
 pub mod delivery;
 pub mod dictionary;
@@ -153,6 +154,7 @@ fn graceful_exit(app: &AppHandle) {
     if let Some(session) = app.try_state::<SessionHandle>() {
       session.shutdown(Duration::from_secs(5)).await;
     }
+    audio::mute::restore_now();
     tracing::info!("exiting");
     app.exit(0);
   });
@@ -180,6 +182,7 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       }
       tracing::info!(version = %app.package_info().version, "Dictation HUD starting");
       let data_dir = app.path().app_local_data_dir().expect("app data dir");
+      audio::mute::init(Some(data_dir.clone()));
       let db = db::Db::open(&data_dir.join("history").join("dictation.db")).map_err(|e| {
         tracing::error!(error = %e, "could not open history database");
         e

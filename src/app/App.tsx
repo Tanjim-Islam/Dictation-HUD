@@ -5,6 +5,8 @@ import { BarChart3, BookA, History, Scissors } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsProvider } from '@/features/settings/SettingsContext';
+import { useSettings } from '@/features/settings/settings-context';
+import { useThemeSync } from '@/lib/theme';
 import { SettingsDialog, type SettingsSectionId } from '@/features/settings/SettingsDialog';
 import { checkForUpdates, startBackgroundChecks } from '@/features/settings/updater';
 import { HistoryPage } from '@/features/history/HistoryPage';
@@ -22,12 +24,17 @@ const NAV: NavItem[] = [
   { id: 'snippets', label: 'Snippets', icon: Scissors },
 ];
 
-const PAGES: Record<string, () => React.ReactNode> = {
-  history: () => <HistoryPage />,
+const PAGES: Record<string, (go: (page: string) => void) => React.ReactNode> = {
+  history: (go) => <HistoryPage onOpenInsights={() => go('insights')} />,
   insights: () => <InsightsPage />,
   dictionary: () => <DictionaryPage />,
   snippets: () => <SnippetsPage />,
 };
+
+function ThemeSync() {
+  useThemeSync(useSettings().settings?.theme);
+  return null;
+}
 
 export function App() {
   const [page, setPage] = useState('history');
@@ -59,6 +66,7 @@ export function App() {
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={400}>
         <SettingsProvider>
+          <ThemeSync />
           <div className="flex h-full flex-col bg-frame">
             <TitleBar onToggleSidebar={() => setSidebar((v) => !v)} />
             <div className="flex min-h-0 flex-1">
@@ -80,7 +88,7 @@ export function App() {
                 <div className="h-full overflow-y-auto px-10 pb-10 pt-12">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div key={page} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={transition.fast}>
-                      {PAGES[page]?.()}
+                      {PAGES[page]?.(setPage)}
                     </motion.div>
                   </AnimatePresence>
                 </div>

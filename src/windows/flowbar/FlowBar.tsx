@@ -11,6 +11,10 @@ type Level = { session_id: string; rms_db: number; peak_db: number };
 type Phase = SessionSnapshot['phase'];
 
 const BUSY: Phase[] = ['finalizing', 'processing', 'delivering'];
+/** Pill grows in with a soft spring and shrinks away quickly. Rust hides the window only
+ * after `PILL_OUT` ends (`EXIT_MS` in flowbar.rs). */
+const PILL_IN = { type: 'spring', stiffness: 460, damping: 28, mass: 0.8, opacity: { duration: 0.14 } } as const;
+const PILL_OUT = { duration: 0.18, ease: [0.4, 0, 1, 1] } as const;
 const BAR_SPAN = 16;
 
 /** Ten bars painted from native level frames. Heights are written to the DOM per frame. */
@@ -76,10 +80,9 @@ function Pill({ snapshot, vertical }: { snapshot: SessionSnapshot; vertical: boo
     phase === 'preparing' ? 'Starting dictation' : phase === 'listening' ? 'Listening' : phase === 'finalizing' ? 'Finishing' : phase === 'delivering' ? 'Inserting text' : 'Processing';
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.92 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.92 }}
-      transition={transition.base}
+      initial={{ opacity: 0, scale: 0.55 }}
+      animate={{ opacity: 1, scale: 1, transition: PILL_IN }}
+      exit={{ opacity: 0, scale: 0.6, transition: PILL_OUT }}
       role="status"
       aria-label={label}
       className={cn('flex h-full w-full items-center justify-between rounded-full bg-[#0f0f0f] ring-1 ring-inset ring-white/10', vertical ? 'flex-col py-1' : 'px-1')}

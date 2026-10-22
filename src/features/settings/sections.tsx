@@ -16,6 +16,8 @@ import { ShortcutField } from './ShortcutField';
 import { KeySourceBadge, SecretField } from './SecretField';
 import { ElevenLabsPool } from './ElevenLabsPool';
 import { UpdatesRow } from './UpdatesRow';
+import { THEME_OPTIONS } from '@/app/theme-options';
+import type { Theme } from '@/lib/api';
 
 const DEFAULT_DEVICE = '__default__';
 
@@ -49,6 +51,26 @@ export function GeneralSection() {
       </Group>
       <GroupLabel>App</GroupLabel>
       <Group>
+        <Row
+          title="Theme"
+          control={
+            <Select value={settings.theme} onValueChange={(v) => update({ theme: v as Theme })}>
+              <SelectTrigger className="w-[150px]" aria-label="Theme">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {THEME_OPTIONS.map(({ id, label, icon: Icon }) => (
+                  <SelectItem key={id} value={id}>
+                    <span className="flex items-center gap-2">
+                      <Icon className="size-3.5 text-ink-muted" />
+                      {label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+        />
         <Row
           title="Launch at login"
           description="Starts quietly in the system tray."
@@ -134,6 +156,19 @@ export function AudioSection() {
       <div className="mt-3">
         <Hint>Processing runs inside Dictation HUD. Some microphones also apply their own processing, which these switches do not control.</Hint>
       </div>
+      <GroupLabel>While dictating</GroupLabel>
+      <Group>
+        <Row
+          title="Mute all audio while dictating"
+          description="Silences music and videos until you finish. Calls and meetings (Discord, Zoom, Teams, WhatsApp, Meet, and any app using a microphone) keep their sound."
+          control={<Switch aria-label="Mute all audio while dictating" checked={settings.mute_audio} onCheckedChange={(v) => update({ mute_audio: v })} />}
+        />
+        <Row
+          title="Dictation sounds"
+          description="A short sound when the Flow Bar opens and when it closes."
+          control={<Switch aria-label="Dictation sounds" checked={settings.sound_effects} onCheckedChange={(v) => update({ sound_effects: v })} />}
+        />
+      </Group>
     </>
   );
 }
@@ -241,7 +276,7 @@ function ModelPicker({ provider, value, onChange }: { provider: string; value: s
         <button
           type="button"
           aria-label="AI model"
-          className="flex h-9 w-[300px] items-center justify-between gap-2 rounded-lg border border-border bg-white px-3 text-left text-[14px] hover:border-[#e2ded3]"
+          className="flex h-9 w-[300px] items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 text-left text-[14px] hover:border-border-strong"
         >
           <span className="truncate">{value}</span>
           <ChevronsUpDown className="size-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
@@ -447,7 +482,7 @@ export function CodingSection() {
         {CODING_EXAMPLES.map(([say, get]) => (
           <div key={say} className="flex items-center justify-between py-3 text-[14px]">
             <span className="text-ink-muted">“{say}”</span>
-            <code className="rounded-md bg-white px-2 py-0.5 font-mono text-[13px] text-ink">{get}</code>
+            <code className="rounded-md bg-card px-2 py-0.5 font-mono text-[13px] text-ink">{get}</code>
           </div>
         ))}
       </Group>

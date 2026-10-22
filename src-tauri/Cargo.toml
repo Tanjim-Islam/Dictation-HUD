@@ -1,6 +1,6 @@
 [package]
 name = "dictation-hud"
-version = "2.0.0"
+version = "2.1.0"
 description = "Cross-platform dictation HUD"
 authors = ["You"]
 edition = "2021"
@@ -9,7 +9,7 @@ edition = "2021"
 tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
-tauri = { version = "2.9", features = ["tray-icon"] }
+tauri = { version = "2.9", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
@@ -56,4 +56,6 @@ windows = { version = "0.58", features = [
   "Win32_System_Variant",
   "Win32_System_Ole",
   "Win32_Security",
+  "Win32_System_Registry",
+  "Win32_Media_Audio",
 ] }

@@ -13,7 +13,10 @@
   --panel: 252 252 251;
   --surface: 245 244 240;
   --surface-strong: 238 235 227;
+  --surface-hover: 230 226 215;
+  --card: 255 255 255;
   --border: 238 235 227;
+  --border-strong: 226 222 211;
   --ink: 26 26 26;
   --ink-muted: 108 107 106;
   --ink-faint: 120 118 114;
@@ -26,7 +29,47 @@
   --success-soft: 209 250 229;
   --warning: 142 86 6;
   --warning-soft: 254 243 199;
+  --shadow-menu: 0 8px 24px -6px rgb(26 26 26 / 0.14), 0 2px 6px -2px rgb(26 26 26 / 0.08);
+  --shadow-dialog: 0 24px 64px -12px rgb(26 26 26 / 0.28), 0 4px 16px -4px rgb(26 26 26 / 0.1);
   color-scheme: light;
+}
+
+/* Dark palette, matched to Wispr Flow's dark theme: near-black frame and panel, warm grey
+   borders and hover fills, off-white text. */
+:root.dark {
+  --frame: 32 32 32;
+  --panel: 26 26 26;
+  --surface: 36 36 35;
+  --surface-strong: 48 48 47;
+  --surface-hover: 58 58 56;
+  --card: 30 30 30;
+  --border: 48 48 47;
+  --border-strong: 66 66 64;
+  --ink: 233 232 225;
+  --ink-muted: 157 156 152;
+  --ink-faint: 128 127 123;
+  --track: 82 82 79;
+  --accent: 64 160 148;
+  --accent-soft: 22 54 50;
+  --danger: 255 87 87;
+  --danger-soft: 64 26 26;
+  --success: 52 211 153;
+  --success-soft: 18 54 42;
+  --warning: 240 182 72;
+  --warning-soft: 62 46 14;
+  --shadow-menu: 0 4px 8px -2px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
+  --shadow-dialog: 0 24px 64px -12px rgb(0 0 0 / 0.6), 0 4px 16px -4px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}
+
+/* Theme switch: a short crossfade (View Transitions), with other transitions paused. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+}
+.theme-switching,
+.theme-switching * {
+  transition: none !important;
 }
 
 @layer base {
@@ -46,6 +89,11 @@
   }
   :focus-visible {
     @apply outline-none ring-2 ring-ink/70 ring-offset-1 ring-offset-panel;
+  }
+  /* Text fields always match :focus-visible; they show focus with their own background or border. */
+  input:focus-visible,
+  textarea:focus-visible {
+    @apply ring-0 ring-offset-0;
   }
   ::selection {
     background: rgb(var(--accent) / 0.18);

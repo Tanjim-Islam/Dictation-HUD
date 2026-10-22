@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AudioLines, Search, X } from 'lucide-react';
-import { api, errorMessage, onHistoryChange, type HistoryFilter, type HistoryItem } from '@/lib/api';
+import { api, errorMessage, onHistoryChange, type HistoryFilter, type HistoryItem, type Insights } from '@/lib/api';
 import { Keycaps } from '@/features/settings/ShortcutField';
 import { Spinner } from '@/components/ui/misc';
 import { cn } from '@/lib/utils';
+import { useToday } from '@/lib/useToday';
 import { HistoryActionsProvider } from './actions';
 import { dayKey, dayLabel } from './format';
 import { HistoryDetailDialog } from './HistoryDetailDialog';
@@ -32,13 +33,55 @@ function useDebounced<T>(value: T, ms: number) {
   return v;
 }
 
+const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+
+/** Total words, speed, and day streak (as on Wispr Flow's home), from the same local metrics
+ * as Insights. Opens Insights on click. */
+function HomeStats({ today, onOpen }: { today: number; onOpen?: () => void }) {
+  const [data, setData] = useState<Insights | null>(null);
+  useEffect(() => {
+    const load = () =>
+      api
+        .insights(new Date().getTimezoneOffset())
+        .then(setData)
+        .catch(() => {});
+    load();
+    const un = onHistoryChange(load);
+    return () => {
+      un.then((f) => f());
+    };
+    // A new day can end a streak, so reload when the date changes.
+  }, [today]);
+  const words = data?.total_words ?? 0;
+  const stats = [
+    { value: words < 100_000 ? words.toLocaleString('en-US') : compact.format(words), label: 'total words' },
+    { value: data?.words_per_minute ? String(Math.ceil(data.words_per_minute)) : '0', label: 'wpm' },
+    { value: String(data?.current_streak ?? 0), label: 'day streak' },
+  ];
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label="Open insights"
+      className="flex shrink-0 flex-col justify-center gap-4 whitespace-nowrap rounded-2xl bg-surface py-5 pl-6 pr-8 text-left transition-colors hover:bg-surface-strong"
+    >
+      {stats.map(({ value, label }) => (
+        <div key={label} className="flex items-baseline gap-2">
+          <span className="font-display text-[28px] leading-7 tracking-[-0.04em] tabular-nums text-ink">{data ? value : '–'}</span>
+          <span className="text-[16px] leading-5 text-ink-muted">{label}</span>
+        </div>
+      ))}
+    </button>
+  );
+}
+
 function DictateCard() {
   const [hotkey, setHotkey] = useState('');
   useEffect(() => {
     api.getHotkey().then(setHotkey).catch(() => {});
   }, []);
   return (
-    <div className="mt-7 flex items-center gap-5 rounded-2xl bg-surface p-6">
+    <div className="flex min-w-0 flex-1 items-center gap-5 rounded-2xl bg-surface p-6">
       <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-ink text-panel">
         <AudioLines className="size-6" strokeWidth={2} />
       </div>
@@ -122,7 +165,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   );
 }
 
-export function HistoryPage() {
+export function HistoryPage({ onOpenInsights }: { onOpenInsights?: () => void }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [more, setMore] = useState(false);
@@ -133,6 +176,7 @@ export function HistoryPage() {
   const count = useRef(PAGE);
   const sentinel = useRef<HTMLDivElement>(null);
   const loadingMore = useRef(false);
+  const today = useToday();
 
   const reload = useCallback(async () => {
     try {
@@ -187,10 +231,10 @@ export function HistoryPage() {
       const key = dayKey(it.created_at);
       const last = out[out.length - 1];
       if (last?.key === key) last.items.push(it);
-      else out.push({ key, label: dayLabel(it.created_at), items: [it] });
+      else out.push({ key, label: dayLabel(it.created_at, today), items: [it] });
     }
     return out;
-  }, [items]);
+  }, [items, today]);
 
   const onDeleted = useCallback((id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
@@ -203,7 +247,10 @@ export function HistoryPage() {
       <HistoryActionsProvider onDeleted={onDeleted}>
         <div className="mx-auto max-w-[768px]">
           <h1 className="text-2xl font-semibold tracking-[-0.01em]">{greeting()}</h1>
-          <DictateCard />
+          <div className="mt-7 flex gap-4">
+            <DictateCard />
+            <HomeStats today={today} onOpen={onOpenInsights} />
+          </div>
           <Toolbar filter={filter} onFilter={setFilter} search={search} onSearch={setSearch} />
           {loading ? (
             <div className="flex justify-center py-16">

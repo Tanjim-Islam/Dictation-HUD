@@ -2,6 +2,7 @@
 const token = (name) => `rgb(var(--${name}) / <alpha-value>)`;
 
 module.exports = {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
@@ -10,7 +11,10 @@ module.exports = {
         panel: token('panel'),
         surface: token('surface'),
         'surface-strong': token('surface-strong'),
+        'surface-hover': token('surface-hover'),
+        card: token('card'),
         border: token('border'),
+        'border-strong': token('border-strong'),
         ink: token('ink'),
         'ink-muted': token('ink-muted'),
         'ink-faint': token('ink-faint'),
@@ -48,8 +52,8 @@ module.exports = {
         '2xl': '20px',
       },
       boxShadow: {
-        menu: '0 8px 24px -6px rgb(26 26 26 / 0.14), 0 2px 6px -2px rgb(26 26 26 / 0.08)',
-        dialog: '0 24px 64px -12px rgb(26 26 26 / 0.28), 0 4px 16px -4px rgb(26 26 26 / 0.10)',
+        menu: 'var(--shadow-menu)',
+        dialog: 'var(--shadow-dialog)',
         pill: '0 6px 18px -4px rgb(0 0 0 / 0.45)',
       },
       keyframes: {

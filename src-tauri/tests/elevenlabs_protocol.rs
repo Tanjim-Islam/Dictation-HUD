@@ -69,6 +69,25 @@ async fn mock_server() -> (String, Received) {
         };
         let mut ws = tokio_tungstenite::accept_hdr_async(tcp, cb).await.unwrap();
         let key = key.lock().unwrap().clone();
+        // Accepted, then refused for quota once audio arrives (seen live with keys whose
+        // subscription still showed full credit).
+        if key.starts_with("refused-") {
+          let _ = ws
+            .send(Message::Text(
+              r#"{"message_type":"session_started","session_id":"s0"}"#.into(),
+            ))
+            .await;
+          let _ = ws.next().await;
+          let _ = ws
+            .send(Message::Text(
+              r#"{"message_type":"quota_exceeded","error":"Quota exceeded"}"#.into(),
+            ))
+            .await;
+          // Close cleanly: read what the client still sends so the socket is not reset.
+          let _ = ws.close(None).await;
+          while let Some(Ok(_)) = ws.next().await {}
+          return;
+        }
         if key != "good-key" {
           let _ = ws
             .send(Message::Text(
@@ -200,4 +219,51 @@ async fn single_bad_key_reports_auth_not_quota() {
     .unwrap()
     .unwrap();
   assert_eq!(ev, SttEvent::Failed(ProviderError::Auth));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tries_past_many_refused_keys_and_benches_them() {
+  let (url, received) = mock_server().await;
+  let pool = Arc::new(ElevenLabsPool::new(
+    Arc::new(MemorySecretStore::default()),
+    Arc::new(MemStorage::default()),
+    Arc::new(Credit),
+  ));
+  for i in 0..7 {
+    pool.add(&format!("refused-{i}")).await.unwrap();
+  }
+  pool.add("good-key").await.unwrap();
+  pool.set_multi(true);
+  let adapter = ElevenLabs::with_base_url(pool.clone(), url);
+  let (audio_tx, audio_rx) = mpsc::channel(64);
+  let (ev_tx, mut ev_rx) = mpsc::channel(64);
+  adapter.spawn(StreamCtx {
+    session_id: uuid::Uuid::new_v4(),
+    options: SttOptions {
+      model: "scribe_v2_realtime".into(),
+      language: "en".into(),
+      keyterms: vec![],
+    },
+    audio: audio_rx,
+    events: ev_tx,
+    cancel: CancellationToken::new(),
+  });
+  for _ in 0..5 {
+    let _ = audio_tx.send(AudioMsg::Pcm(vec![100i16; 1600])).await;
+  }
+  tokio::time::sleep(Duration::from_millis(600)).await;
+  let _ = audio_tx.send(AudioMsg::Finish).await;
+  let mut last = None;
+  while let Ok(Some((_, ev))) = tokio::time::timeout(Duration::from_secs(10), ev_rx.recv()).await {
+    let done = matches!(ev, SttEvent::Finalized | SttEvent::Failed(_));
+    last = Some(ev);
+    if done {
+      break;
+    }
+  }
+  // More than five keys failed, and the session still finished on the working one.
+  assert_eq!(last, Some(SttEvent::Finalized));
+  assert!(received.lock().unwrap().get("good-key").copied().unwrap_or(0) >= 16_000);
+  let view = pool.view();
+  assert_eq!(view.keys.iter().filter(|k| k.status == KeyStatus::Refused).count(), 7);
 }

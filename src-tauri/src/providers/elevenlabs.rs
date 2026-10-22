@@ -23,6 +23,8 @@ use super::{
 const REPLAY_CAP: usize = 90 * SAMPLE_RATE as usize;
 const MAX_KEYTERMS: usize = 50;
 const MAX_KEYTERM_CHARS: usize = 20;
+/// How long one session keeps failing over to further pooled keys after the first key fails.
+const FAILOVER_BUDGET: Duration = Duration::from_secs(45);
 
 pub fn descriptor() -> ProviderDescriptor {
   ProviderDescriptor {
@@ -104,16 +106,25 @@ pub fn parse_message(text: &str) -> Parsed {
   };
   let t = v["message_type"].as_str().unwrap_or("");
   let body = || v["text"].as_str().unwrap_or("").to_string();
+  // The provider's own explanation, cleaned for logs.
+  let detail = provider_detail(v["error"].as_str().or(v["message"].as_str()).unwrap_or(""));
+  let kind = |t: &str| {
+    if detail.is_empty() {
+      t.to_string()
+    } else {
+      format!("{t}: {detail}")
+    }
+  };
   match t {
     "session_started" => Parsed::Started,
     "partial_transcript" => Parsed::Partial(body()),
     "committed_transcript" => Parsed::Committed(body()),
-    "auth_error" | "unaccepted_terms" => Parsed::Error(LeaseOutcome::Auth, t.into()),
-    "quota_exceeded" => Parsed::Error(LeaseOutcome::Quota, t.into()),
+    "auth_error" | "unaccepted_terms" => Parsed::Error(LeaseOutcome::Auth, kind(t)),
+    "quota_exceeded" => Parsed::Error(LeaseOutcome::Quota, kind(t)),
     // No speech in the audio: not a failure.
     "insufficient_audio_activity" => Parsed::NoSpeech,
     "rate_limited" | "commit_throttled" | "queue_overflow" | "resource_exhausted" | "session_time_limit_exceeded" => {
-      Parsed::Error(LeaseOutcome::Transient, t.into())
+      Parsed::Error(LeaseOutcome::Transient, kind(t))
     }
     other
       if other.contains("error")
@@ -127,13 +138,32 @@ pub fn parse_message(text: &str) -> Parsed {
         .iter()
         .any(|w| low.contains(w))
       {
-        Parsed::Error(LeaseOutcome::Quota, other.into())
+        Parsed::Error(LeaseOutcome::Quota, kind(other))
       } else {
-        Parsed::Error(LeaseOutcome::Other, other.into())
+        Parsed::Error(LeaseOutcome::Other, kind(other))
       }
     }
     _ => Parsed::Other,
   }
+}
+
+/// Provider error text safe to log: long token-like runs masked, whitespace collapsed, capped.
+fn provider_detail(raw: &str) -> String {
+  let words: Vec<String> = raw
+    .split_whitespace()
+    .map(|w| {
+      let token = w
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .count();
+      if token >= 24 {
+        "***".to_string()
+      } else {
+        w.to_string()
+      }
+    })
+    .collect();
+  words.join(" ").chars().take(160).collect()
 }
 
 fn outcome_error(o: LeaseOutcome) -> ProviderError {
@@ -196,8 +226,19 @@ async fn run(pool: Arc<ElevenLabsPool>, base: String, mut ctx: StreamCtx) {
     connected_once: false,
     audio_closed: false,
   };
-  let max_attempts = pool.view().keys.len().clamp(1, 5);
+  // Every pooled key may be tried (as in MonerJanala), within a time budget so a live
+  // dictation never hangs on a long run of refused keys.
+  let max_attempts = pool.view().keys.len().max(1);
+  let mut first_failure: Option<Instant> = None;
   for _ in 0..max_attempts {
+    if first_failure.is_some_and(|t| t.elapsed() > FAILOVER_BUDGET) {
+      tracing::warn!(
+        provider = "elevenlabs",
+        tried = tried.len(),
+        "failover time budget used up"
+      );
+      break;
+    }
     let lease = tokio::select! {
       _ = ctx.cancel.cancelled() => return,
       l = pool.acquire(&tried) => l,
@@ -222,7 +263,8 @@ async fn run(pool: Arc<ElevenLabsPool>, base: String, mut ctx: StreamCtx) {
         return;
       }
       Attempt::KeyFailed(outcome) => {
-        tracing::warn!(provider = "elevenlabs", outcome = ?outcome, "key failed; trying next pooled key");
+        tracing::warn!(provider = "elevenlabs", key = %lease.key_id, outcome = ?outcome, tried = tried.len(), "key failed; trying next pooled key");
+        first_failure.get_or_insert_with(Instant::now);
         pool.release(&lease.key_id, outcome);
         last_failure = Some(outcome);
         if ctx.cancel.is_cancelled() {
@@ -478,6 +520,16 @@ mod tests {
       parse_message(r#"{"message_type":"error","error":"Insufficient credits"}"#),
       Parsed::Error(LeaseOutcome::Quota, _)
     ));
+  }
+
+  #[test]
+  fn error_detail_is_kept_but_masks_tokens() {
+    let m = r#"{"message_type":"quota_exceeded","error":"Key   abcdefghijklmnopqrstuvwxyz0123 has a credit limit"}"#;
+    let Parsed::Error(LeaseOutcome::Quota, kind) = parse_message(m) else {
+      panic!("quota error expected");
+    };
+    assert_eq!(kind, "quota_exceeded: Key *** has a credit limit");
+    assert!(provider_detail(&"x ".repeat(200)).chars().count() <= 160);
   }
 
   #[test]

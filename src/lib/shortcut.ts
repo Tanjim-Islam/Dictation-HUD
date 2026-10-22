@@ -28,3 +28,12 @@ export function eventToKeyArray(e: KeyLike): string[] {
   }
   return parts;
 }
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
+const SUPER_NAMES = new Set(['Cmd', 'Command', 'Super', 'Meta', 'Win']);
+
+/** Label for a stored key token. The Super key is stored as "Cmd" and shown as "Win" on Windows. */
+export function displayKey(key: string, mac = IS_MAC): string {
+  if (SUPER_NAMES.has(key)) return mac ? 'Cmd' : 'Win';
+  return key;
+}
