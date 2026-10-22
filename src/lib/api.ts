@@ -14,6 +14,9 @@ export type Settings = {
   language: string;
   input_device: string | null;
   echo_cancellation: boolean;
+  mute_audio: boolean;
+  sound_effects: boolean;
+  theme: Theme;
   noise_suppression: boolean;
   ai_refine: boolean;
   ai_provider: string;
@@ -46,7 +49,9 @@ export type RefineProvider = { id: string; name: string; configured: boolean; ke
 
 export type ProvidersOverview = { stt: SttProvider[]; refine: RefineProvider[] };
 
-export type KeyStatus = 'unknown' | 'usable' | 'low_credit' | 'invalid' | 'cooldown' | 'error' | 'no_credit_access';
+export type Theme = 'light' | 'dark' | 'system';
+
+export type KeyStatus = 'unknown' | 'usable' | 'low_credit' | 'invalid' | 'cooldown' | 'error' | 'no_credit_access' | 'refused';
 
 export type PoolKey = {
   id: string;

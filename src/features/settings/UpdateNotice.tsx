@@ -24,7 +24,7 @@ export function UpdateNotice() {
           transition={transition.base}
           className="overflow-hidden"
         >
-          <div role="status" aria-live="polite" className="relative mb-3 rounded-xl border border-border bg-white p-3 shadow-[0_1px_2px_rgb(26_26_26/0.04)]">
+          <div role="status" aria-live="polite" className="relative mb-3 rounded-xl border border-border bg-card p-3 shadow-[0_1px_2px_rgb(26_26_26/0.04)]">
             {s.status === 'available' && (
               <button
                 type="button"

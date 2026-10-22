@@ -6,6 +6,9 @@
 //! monitor of the session's target window (falling back to the cursor's monitor), sized in
 //! physical pixels for that monitor's scale. The window is never focusable, so showing it
 //! never takes focus from the app being dictated into.
+//!
+//! The window is placed above every normal and topmost window each time it is shown. Hiding
+//! waits for the WebView's exit animation, unless something shows the bar again first.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -18,6 +21,8 @@ use crate::session::Phase;
 pub const LABEL: &str = "flowbar";
 pub const NOTICE_EVENT: &str = "session://notice";
 const NOTICE_MS: u64 = 3_200;
+/// Matches the pill's exit animation in `FlowBar.tsx`.
+const EXIT_MS: u64 = 220;
 
 /// Pill size in logical pixels (long side x short side).
 pub const PILL_LONG: f64 = 100.0;
@@ -99,6 +104,8 @@ pub fn place(work: Rect, scale: f64, edge: Edge, layout: Layout) -> Rect {
 
 /// While a notice is on screen the window must not be hidden by the Idle transition.
 static NOTICE_UNTIL: AtomicU64 = AtomicU64::new(0);
+/// Bumped by every show; a pending delayed hide only runs if nothing showed the bar since.
+static SHOW_GEN: AtomicU64 = AtomicU64::new(0);
 /// The window the current (or last) session targets; decides the monitor.
 static ANCHOR: Mutex<Option<isize>> = Mutex::new(None);
 
@@ -153,16 +160,56 @@ fn apply(app: &AppHandle, layout: Layout) {
     });
     let _ = win.set_position(PhysicalPosition { x: r.x, y: r.y });
   }
+  SHOW_GEN.fetch_add(1, Ordering::SeqCst);
   if !win.is_visible().unwrap_or(false) {
     let _ = win.show();
   }
   let _ = win.set_always_on_top(true);
+  raise_topmost(&win);
 }
 
-fn hide_window(app: &AppHandle) {
-  if let Some(win) = app.get_webview_window(LABEL) {
-    let _ = win.hide();
+/// Re-asserts the top of the topmost band without activating (other topmost windows opened
+/// since the last show would otherwise cover the bar).
+#[cfg(windows)]
+fn raise_topmost(win: &tauri::WebviewWindow) {
+  use windows::Win32::UI::WindowsAndMessaging::{
+    SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+  };
+  if let Ok(h) = win.hwnd() {
+    // Tauri's HWND comes from another `windows` crate version; rebuild ours from the raw value.
+    let hwnd = windows::Win32::Foundation::HWND(h.0);
+    unsafe {
+      let _ = SetWindowPos(
+        hwnd,
+        HWND_TOPMOST,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER,
+      );
+    }
   }
+}
+
+#[cfg(not(windows))]
+fn raise_topmost(_win: &tauri::WebviewWindow) {}
+
+/// Hides after the exit animation, unless the bar is shown again meanwhile.
+fn hide_window(app: &AppHandle) {
+  let Some(win) = app.get_webview_window(LABEL) else {
+    return;
+  };
+  if !win.is_visible().unwrap_or(false) {
+    return;
+  }
+  let gen = SHOW_GEN.load(Ordering::SeqCst);
+  tauri::async_runtime::spawn(async move {
+    tokio::time::sleep(std::time::Duration::from_millis(EXIT_MS)).await;
+    if SHOW_GEN.load(Ordering::SeqCst) == gen && !notice_active() {
+      let _ = win.hide();
+    }
+  });
 }
 
 /// Follows the session phase. `anchor` is the target window of the session, if any.

@@ -4,15 +4,15 @@ import { Keyboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { api, errorMessage } from '@/lib/api';
-import { eventToKeyArray } from '@/lib/shortcut';
+import { displayKey, eventToKeyArray } from '@/lib/shortcut';
 
 export function Keycaps({ combo }: { combo: string }) {
   const keys = combo.split('+').filter(Boolean);
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {keys.map((k) => (
-        <kbd key={k} className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-white px-1.5 font-sans text-xs font-medium text-ink shadow-[0_1px_0_rgb(0_0_0/0.06)]">
-          {k}
+        <kbd key={k} className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-card px-1.5 font-sans text-xs font-medium text-ink shadow-[0_1px_0_rgb(0_0_0/0.06)]">
+          {displayKey(k)}
         </kbd>
       ))}
     </span>

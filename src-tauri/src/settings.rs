@@ -30,6 +30,13 @@ pub struct Settings {
   pub input_device: Option<String>,
   pub echo_cancellation: bool,
   pub noise_suppression: bool,
+  /// Mute other apps' audio while dictating (calls and meetings are left alone).
+  pub mute_audio: bool,
+  /// Short sounds when the Flow Bar opens and closes.
+  pub sound_effects: bool,
+  // Appearance
+  /// `light`, `dark`, or `system`.
+  pub theme: String,
   // AI refinement
   pub ai_refine: bool,
   pub ai_provider: String,
@@ -73,6 +80,9 @@ impl Default for Settings {
       input_device: None,
       echo_cancellation: true,
       noise_suppression: true,
+      mute_audio: true,
+      sound_effects: true,
+      theme: "system".into(),
       ai_refine: true,
       ai_provider: "openrouter".into(),
       openrouter_model: DEFAULT_OPENROUTER_MODEL.into(),
@@ -122,6 +132,9 @@ impl Settings {
     if crate::learning::Mode::parse(&self.correction_learning).is_none() {
       self.correction_learning = "suggest".into();
     }
+    if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
+      self.theme = "system".into();
+    }
     if crate::flowbar::Edge::parse(&self.flowbar_edge).is_none() {
       self.flowbar_edge = "bottom".into();
     }
@@ -148,6 +161,9 @@ pub struct SettingsPatch {
   pub input_device: Option<String>,
   pub echo_cancellation: Option<bool>,
   pub noise_suppression: Option<bool>,
+  pub mute_audio: Option<bool>,
+  pub sound_effects: Option<bool>,
+  pub theme: Option<String>,
   pub ai_refine: Option<bool>,
   pub ai_provider: Option<String>,
   pub openrouter_model: Option<String>,
@@ -176,6 +192,9 @@ impl SettingsPatch {
       input_device,
       echo_cancellation,
       noise_suppression,
+      mute_audio,
+      sound_effects,
+      theme,
       ai_refine,
       ai_provider,
       openrouter_model,
@@ -198,6 +217,8 @@ impl SettingsPatch {
       auto_paste,
       echo_cancellation,
       noise_suppression,
+      mute_audio,
+      sound_effects,
       ai_refine,
       audio_retention_days,
       smart_formatting,
@@ -217,7 +238,8 @@ impl SettingsPatch {
       openrouter_model,
       megallm_model,
       flowbar_edge,
-      correction_learning
+      correction_learning,
+      theme
     );
     if let Some(v) = self.input_device {
       s.input_device = if v.is_empty() { None } else { Some(v) };

@@ -7,6 +7,11 @@
 //! is excluded while the next one is tried. Added here: runtime add/remove with duplicate
 //! detection, OS credential storage, request timeouts, and live credit polling.
 //!
+//! Also added: ElevenLabs can refuse a realtime session with `quota_exceeded` while the
+//! subscription endpoint still reports plenty of credit. Such a key is marked `Refused` with an
+//! escalating cooldown that a credit refresh does not clear (the refresh would report it as
+//! healthy again within minutes), and keys that were refused are tried last.
+//!
 //! Secrets live only in the OS credential store (`elevenlabs:<id>`). Everything in
 //! [`PoolData`] is non-secret metadata.
 
@@ -24,6 +29,9 @@ use super::ProviderError;
 pub const CREDIT_BUFFER: u64 = 500;
 const LOW_CREDIT_COOLDOWN_MS: u64 = 5 * 60 * 1000;
 const TRANSIENT_COOLDOWN_MS: u64 = 60 * 1000;
+/// First cooldown for a key refused despite showing credits; doubles per refusal, up to a day.
+const REFUSED_COOLDOWN_MS: u64 = 30 * 60 * 1000;
+const REFUSED_COOLDOWN_MAX_MS: u64 = 24 * 60 * 60 * 1000;
 pub const FRESH_MS: u64 = 5 * 60 * 1000;
 /// Estimated credits held while a realtime session runs. Real usage shows up at the next
 /// subscription refresh, which runs right after each session.
@@ -47,6 +55,8 @@ pub enum KeyStatus {
   Error,
   /// Key works for speech-to-text but cannot read its subscription (restricted key).
   NoCreditAccess,
+  /// ElevenLabs refused a session for quota although the key shows credits left.
+  Refused,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -63,6 +73,8 @@ pub struct KeyEntry {
   pub last_error: Option<String>,
   pub cooldown_until_ms: Option<u64>,
   pub consecutive_failures: u32,
+  /// Quota refusals despite credits, reset only by a successful session.
+  pub refusals: u32,
 }
 
 impl Default for KeyEntry {
@@ -79,6 +91,7 @@ impl Default for KeyEntry {
       last_error: None,
       cooldown_until_ms: None,
       consecutive_failures: 0,
+      refusals: 0,
     }
   }
 }
@@ -96,7 +109,7 @@ impl KeyEntry {
     let status_ok = match self.status {
       KeyStatus::Usable | KeyStatus::Unknown | KeyStatus::NoCreditAccess => true,
       // A cooldown status ends when the timer does.
-      KeyStatus::Cooldown => !self.cooling(now),
+      KeyStatus::Cooldown | KeyStatus::Refused => !self.cooling(now),
       _ => false,
     };
     if !status_ok || self.cooling(now) {
@@ -570,7 +583,10 @@ impl ElevenLabsPool {
     }
     if pool.iter().all(|k| k.status == KeyStatus::Invalid) {
       Err(ProviderError::Auth)
-    } else if pool.iter().any(|k| k.status == KeyStatus::LowCredit) {
+    } else if pool
+      .iter()
+      .any(|k| matches!(k.status, KeyStatus::LowCredit | KeyStatus::Refused))
+    {
       Err(ProviderError::QuotaExceeded)
     } else {
       Err(ProviderError::RateLimited)
@@ -585,9 +601,11 @@ impl ElevenLabsPool {
       .iter()
       .enumerate()
       .filter(|(_, k)| candidates.contains(&k.id) && k.eligible(now, SESSION_RESERVATION))
-      .min_by_key(|(i, k)| (k.last_used_ms.unwrap_or(0), *i))
+      // Keys ElevenLabs refused before go last, then least recently used.
+      .min_by_key(|(i, k)| (k.refusals, k.last_used_ms.unwrap_or(0), *i))
       .map(|(i, _)| i)?;
     let id = data.keys[pick].id.clone();
+    tracing::info!(provider = "elevenlabs", key = %id, position = pick + 1, refusals = data.keys[pick].refusals, "pool key selected");
     let secret = self.secrets.get(&names::elevenlabs(&id))?;
     let k = &mut data.keys[pick];
     k.reserved += SESSION_RESERVATION;
@@ -608,11 +626,22 @@ impl ElevenLabsPool {
     };
     k.reserved = k.reserved.saturating_sub(SESSION_RESERVATION);
     match outcome {
-      LeaseOutcome::Ok => k.consecutive_failures = 0,
+      LeaseOutcome::Ok => {
+        k.consecutive_failures = 0;
+        k.refusals = 0;
+      }
       LeaseOutcome::Auth => {
         k.status = KeyStatus::Invalid;
         k.last_error = Some("Rejected by ElevenLabs".into());
         k.consecutive_failures += 1;
+      }
+      LeaseOutcome::Quota if k.remaining().is_some_and(|r| r > CREDIT_BUFFER) => {
+        k.status = KeyStatus::Refused;
+        k.refusals += 1;
+        k.consecutive_failures += 1;
+        let backoff = REFUSED_COOLDOWN_MS.saturating_mul(1 << (k.refusals - 1).min(6));
+        k.cooldown_until_ms = Some(now + backoff.min(REFUSED_COOLDOWN_MAX_MS));
+        k.last_error = Some("ElevenLabs refused it (quota) although it shows credits".into());
       }
       LeaseOutcome::Quota => {
         k.status = KeyStatus::LowCredit;
@@ -700,6 +729,10 @@ fn apply_credits(k: &mut KeyEntry, c: &Credits, now: u64) {
   k.character_count = Some(c.character_count);
   k.character_limit = Some(c.character_limit);
   k.last_checked_ms = Some(now);
+  // The subscription endpoint cannot see a realtime refusal: keep it until its cooldown ends.
+  if k.status == KeyStatus::Refused && k.cooling(now) {
+    return;
+  }
   k.cooldown_until_ms = None;
   let remaining = c.character_limit.saturating_sub(c.character_count);
   k.status = if remaining <= CREDIT_BUFFER {
@@ -994,7 +1027,7 @@ mod tests {
     let lease = run(p.acquire(&[])).unwrap();
     p.release(&lease.key_id, LeaseOutcome::Quota);
     let k = p.view().keys.into_iter().find(|k| k.id == lease.key_id).unwrap();
-    assert_eq!(k.status, KeyStatus::LowCredit);
+    assert_eq!(k.status, KeyStatus::Refused, "quota refusal with credits left");
     let next = run(p.acquire(std::slice::from_ref(&lease.key_id))).unwrap();
     assert_ne!(next.key_id, lease.key_id);
     p.release(&next.key_id, LeaseOutcome::Auth);
@@ -1053,5 +1086,40 @@ mod tests {
     let lease = run(p.acquire(&[])).unwrap();
     assert_eq!(lease.key_id, "dev-env");
     assert!(p.view().using_dev_key);
+  }
+
+  #[test]
+  fn quota_refusal_survives_refresh_and_goes_last() {
+    let api = Arc::new(FakeApi::default());
+    api.set("a", credits(0, 10_000));
+    api.set("b", credits(0, 10_000));
+    let p = pool(api);
+    run(async {
+      p.add("a").await.unwrap();
+      p.add("b").await.unwrap();
+    });
+    p.set_multi(true);
+    let bad = run(p.acquire(&[])).unwrap();
+    p.release(&bad.key_id, LeaseOutcome::Quota);
+    // The subscription still reports full credit; the refusal must stick.
+    run(p.refresh(&bad.key_id));
+    let k = p.view().keys.into_iter().find(|k| k.id == bad.key_id).unwrap();
+    assert_eq!(k.status, KeyStatus::Refused);
+    for _ in 0..3 {
+      let lease = run(p.acquire(&[])).unwrap();
+      assert_ne!(lease.key_id, bad.key_id, "refused key is cooling down");
+      p.release(&lease.key_id, LeaseOutcome::Ok);
+    }
+    // Once the cooldown ends the key is usable again, but healthy keys still go first.
+    {
+      let mut data = p.data.lock().unwrap();
+      let k = data.keys.iter_mut().find(|k| k.id == bad.key_id).unwrap();
+      k.cooldown_until_ms = Some(0);
+    }
+    run(p.refresh(&bad.key_id));
+    let k = p.view().keys.into_iter().find(|k| k.id == bad.key_id).unwrap();
+    assert_eq!(k.status, KeyStatus::Usable);
+    let lease = run(p.acquire(&[])).unwrap();
+    assert_ne!(lease.key_id, bad.key_id, "keys that were refused are tried last");
   }
 }

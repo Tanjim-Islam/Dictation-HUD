@@ -14,7 +14,7 @@ export const Switch = React.forwardRef<
     )}
     {...props}
   >
-    <SwitchPrimitive.Thumb className="pointer-events-none block size-[18px] rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.18)] transition-transform duration-200 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] data-[state=checked]:translate-x-[18px] data-[state=unchecked]:translate-x-0" />
+    <SwitchPrimitive.Thumb className="pointer-events-none block size-[18px] rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.18)] dark:data-[state=checked]:bg-panel transition-transform duration-200 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] data-[state=checked]:translate-x-[18px] data-[state=unchecked]:translate-x-0" />
   </SwitchPrimitive.Root>
 ));
 Switch.displayName = 'Switch';

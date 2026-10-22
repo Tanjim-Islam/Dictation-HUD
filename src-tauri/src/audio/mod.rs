@@ -3,6 +3,7 @@
 pub mod capture;
 pub mod dsp;
 pub mod levels;
+pub mod mute;
 pub mod recording;
 pub mod store;
 

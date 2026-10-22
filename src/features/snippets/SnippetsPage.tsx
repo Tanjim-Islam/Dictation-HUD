@@ -101,11 +101,11 @@ function Intro({ onAdd, onDismiss }: { onAdd: () => void; onDismiss: () => void 
           <div key={t} className="flex items-center gap-2 text-[13px]">
             <span className="rounded-lg bg-white/15 px-3 py-1.5 italic">“{t}”</span>
             <ArrowRight className="size-3.5 text-white/70" />
-            <span className="truncate rounded-lg bg-white/90 px-3 py-1.5 text-ink">{e.split('\n')[0]}</span>
+            <span className="truncate rounded-lg bg-white/90 px-3 py-1.5 text-[#1a1a1a]">{e.split('\n')[0]}</span>
           </div>
         ))}
       </div>
-      <Button className="relative mt-6 bg-white text-ink hover:bg-white/90" onClick={onAdd}>
+      <Button className="relative mt-6 bg-white text-[#1a1a1a] hover:bg-white/90" onClick={onAdd}>
         Add new snippet
       </Button>
     </div>

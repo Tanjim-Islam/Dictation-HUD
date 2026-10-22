@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::audio::capture::CaptureConfig;
+use crate::audio::mute;
 use crate::audio::recording::RecordingWriter;
 use crate::audio::store::RecordingsDir;
+use crate::cues::{self, Cue};
 use crate::db::sessions::{self, NewSession, Processing};
 use crate::db::Db;
 use crate::delivery::{self, CopyReason, Delivered};
@@ -19,7 +21,7 @@ use crate::engine::{self, EngineConfig, EngineHandle, EngineHooks, LevelEvent};
 use crate::logging::text_shape;
 use crate::services::Services;
 use crate::session::host::Host;
-use crate::session::machine::{DeliveryOutcome, Input, Outcome, Processed, SessionId, Snapshot, Trigger};
+use crate::session::machine::{DeliveryOutcome, Input, Outcome, Phase, Processed, SessionId, Snapshot, Trigger};
 use crate::session::SessionHandle;
 use crate::target::FocusSnapshot;
 use crate::target::{self, Target};
@@ -53,6 +55,12 @@ pub struct TauriHost {
   /// Where each session's text is meant to go, captured at start.
   targets: Mutex<HashMap<SessionId, Option<Target>>>,
   extras: ExtrasMap,
+  /// Phase of the last published snapshot, to notice recording start and stop.
+  last_phase: Mutex<Phase>,
+}
+
+fn recording(p: Phase) -> bool {
+  matches!(p, Phase::Preparing | Phase::Listening)
 }
 
 /// Why delivery copied instead of pasting, until the outcome is recorded (managed state, so
@@ -96,6 +104,31 @@ impl TauriHost {
       recorders: Arc::new(Mutex::new(HashMap::new())),
       targets: Mutex::new(HashMap::new()),
       extras: Arc::new(Mutex::new(HashMap::new())),
+      last_phase: Mutex::new(Phase::Idle),
+    }
+  }
+
+  /// Open/close sounds and muting of other apps follow the recording, not the whole session:
+  /// they stop as soon as the user finishes or cancels.
+  fn recording_changed(&self, phase: Phase) {
+    let prev = std::mem::replace(&mut *self.last_phase.lock().unwrap(), phase);
+    match (recording(prev), recording(phase)) {
+      (false, true) => {
+        let s = settings::load(&self.app);
+        if s.sound_effects {
+          cues::play(Cue::Open);
+        }
+        if s.mute_audio {
+          mute::mute_others();
+        }
+      }
+      (true, false) => {
+        if settings::load(&self.app).sound_effects {
+          cues::play(Cue::Close);
+        }
+        mute::restore();
+      }
+      _ => {}
     }
   }
 
@@ -117,6 +150,7 @@ impl Host for TauriHost {
       let id = uuid::Uuid::parse_str(sid).ok()?;
       self.targets.lock().unwrap().get(&id).cloned().flatten().map(|t| t.hwnd)
     });
+    self.recording_changed(snapshot.phase);
     flowbar::present(&self.app, snapshot.phase, anchor, snapshot.error.as_deref());
     let _ = self.app.emit(SNAPSHOT_EVENT, snapshot);
   }

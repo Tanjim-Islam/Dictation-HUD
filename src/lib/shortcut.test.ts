@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eventToKeyArray, normalizeKey } from './shortcut';
+import { displayKey, eventToKeyArray, normalizeKey } from './shortcut';
 
 const ev = (key: string, mods: Partial<Record<'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey', boolean>> = {}) => ({
   key,
@@ -24,5 +24,12 @@ describe('shortcut capture', () => {
     expect(normalizeKey(' ')).toBe('Space');
     expect(eventToKeyArray(ev(' ', { ctrlKey: true }))).toEqual(['Ctrl', 'Space']);
     expect(eventToKeyArray(ev('F9'))).toEqual(['F9']);
+  });
+
+  it('shows the Super key as Win on Windows and Cmd on macOS', () => {
+    expect(displayKey('Cmd', false)).toBe('Win');
+    expect(displayKey('Super', false)).toBe('Win');
+    expect(displayKey('Cmd', true)).toBe('Cmd');
+    expect(displayKey('Space', false)).toBe('Space');
   });
 });

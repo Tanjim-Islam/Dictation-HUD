@@ -13,7 +13,7 @@ const itemClass =
   'relative flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-ink outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-surface data-[disabled]:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-ink-muted';
 
 const contentClass =
-  'z-50 min-w-[180px] overflow-hidden rounded-xl border border-border bg-white p-1 shadow-menu data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out';
+  'z-50 min-w-[180px] overflow-hidden rounded-xl border border-border bg-card p-1 shadow-menu outline-none focus-visible:ring-0 data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out';
 
 export const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof MenuPrimitive.Content>,

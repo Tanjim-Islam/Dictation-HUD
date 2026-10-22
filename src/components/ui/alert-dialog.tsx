@@ -11,11 +11,11 @@ export const AlertDialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof AlertPrimitive.Content>
 >(({ className, ...props }, ref) => (
   <AlertPrimitive.Portal>
-    <AlertPrimitive.Overlay className="fixed inset-0 z-50 bg-black/25 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+    <AlertPrimitive.Overlay className="fixed inset-0 z-50 bg-black/25 dark:bg-black/55 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
     <AlertPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-dialog outline-none data-[state=open]:animate-dialog-in data-[state=closed]:animate-dialog-out',
+        'fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-card p-6 shadow-dialog outline-none data-[state=open]:animate-dialog-in data-[state=closed]:animate-dialog-out',
         className,
       )}
       {...props}
