@@ -77,12 +77,18 @@ pub async fn transcribe(
   };
 
   let send_time = interval * (pcm.len() / CHUNK + 1) as u32;
-  let deadline = tokio::time::Instant::now() + send_time + pace.finalize_timeout;
+  // Providers that confirm audio in checkpoints (ElevenLabs: every 20 s of audio) pause for each
+  // acknowledgment, so long recordings get a few seconds per 20 s on top of the send time.
+  let checkpoints = pcm.len() / (20 * SAMPLE_RATE as usize) + 1;
+  let ack_allowance = Duration::from_secs(3) * checkpoints as u32;
+  let deadline = tokio::time::Instant::now() + send_time + ack_allowance + pace.finalize_timeout;
+  let hard_deadline = deadline + Duration::from_millis(super::RECOVERY_BUDGET_MS);
+  let mut recovering = false;
   let mut finals: Vec<String> = Vec::new();
   let result = loop {
     tokio::select! {
       _ = cancel.cancelled() => break Err(ProviderError::Protocol("cancelled".into())),
-      _ = tokio::time::sleep_until(deadline) => break Err(ProviderError::Timeout),
+      _ = tokio::time::sleep_until(if recovering { hard_deadline } else { deadline }) => break Err(ProviderError::Timeout),
       ev = events_rx.recv() => match ev {
         Some((sid, _)) if sid != id => {}
         Some((_, SttEvent::Final(text))) => {
@@ -92,6 +98,10 @@ pub async fn transcribe(
           }
         }
         Some((_, SttEvent::Finalized)) => break Ok(finals.join(" ")),
+        // Failover to another pooled key: give it time to take the replayed audio.
+        Some((_, SttEvent::Reconnecting)) => {
+          recovering = true;
+        }
         Some((_, SttEvent::Failed(e))) => break Err(e),
         Some(_) => {}
         None => break Err(ProviderError::Protocol("stream ended".into())),

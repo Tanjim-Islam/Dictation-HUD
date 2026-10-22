@@ -1,6 +1,7 @@
 //! Per-session dictation engine: native capture + provider stream, reporting to the session
 //! actor. The engine never decides lifecycle; it only reports events tagged with its session id.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -128,6 +129,7 @@ async fn run(
   };
 
   // 1. Microphone first: speech is captured and buffered before the provider connects.
+  let _activity = adapter.activity_guard();
   let (audio_tx, audio_rx) = mpsc::channel::<AudioMsg>(PROVIDER_QUEUE);
   let levels = Arc::new(LevelMeter::default());
   let lost_session = session.clone();
@@ -188,13 +190,17 @@ async fn run(
   });
 
   let mut capture = Some(capture);
+  let capture_loss = Arc::new(AtomicBool::new(false));
+  let loss = capture_loss.clone();
   let on_end = hooks.on_capture_end.clone();
   let stop_capture = |c: &mut Option<Capture>| {
     let c = c.take();
     let on_end = on_end.clone();
+    let loss = loss.clone();
     async move {
       if let Some(c) = c {
         if let Ok(stats) = tauri::async_runtime::spawn_blocking(move || c.stop()).await {
+          loss.store(stats.provider_drops > 0 || stats.ring_overruns > 0, Ordering::SeqCst);
           on_end(id, &stats);
         }
       }
@@ -213,15 +219,23 @@ async fn run(
         // Drain every captured sample into the provider queue, then mark the end.
         stop_capture(&mut capture).await;
         level_cancel.cancel();
-        let _ = audio_tx.send(AudioMsg::Finish).await;
+        if capture_loss.load(Ordering::SeqCst) {
+          report(&session, id, EngineEvent::Failed(EngineError::Incomplete)).await;
+          break;
+        }
+        tokio::select! {
+          _ = cancel.cancelled() => break,
+          _ = audio_tx.send(AudioMsg::Finish) => {},
+        }
       }
       ev = events_rx.recv() => match ev {
         Some((sid, ev)) if sid == id => match ev {
-          SttEvent::Connected => {}
+          SttEvent::Connected => report(&session, id, EngineEvent::Connected).await,
+          SttEvent::Reconnecting => report(&session, id, EngineEvent::Reconnecting).await,
           SttEvent::Interim(t) => report(&session, id, EngineEvent::Interim(t)).await,
           SttEvent::Final(t) => report(&session, id, EngineEvent::Final(t)).await,
           SttEvent::Finalized => {
-            report(&session, id, EngineEvent::Finalized).await;
+            report(&session, id, if capture_loss.load(Ordering::SeqCst) { EngineEvent::Failed(EngineError::Incomplete) } else { EngineEvent::Finalized }).await;
             break;
           }
           SttEvent::Failed(e) => {
@@ -234,11 +248,7 @@ async fn run(
         Some(_) => {} // never from another session; ignored defensively
         None => {
           stop_capture(&mut capture).await;
-          if finishing {
-            report(&session, id, EngineEvent::Finalized).await;
-          } else {
-            report(&session, id, EngineEvent::Failed(EngineError::Lost)).await;
-          }
+          report(&session, id, EngineEvent::Failed(EngineError::Lost)).await;
           break;
         }
       }

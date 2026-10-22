@@ -22,6 +22,9 @@ use tokio_util::sync::CancellationToken;
 use crate::session::machine::{EngineError, SessionId};
 
 pub const SAMPLE_RATE: u32 = 16_000;
+/// Recovery includes reconnecting, replay, and its acknowledgment. Finalization adds flush time.
+pub const RECOVERY_BUDGET_MS: u64 = 45_000;
+pub const FINALIZE_LIMIT_MS: u64 = RECOVERY_BUDGET_MS + 15_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,6 +78,8 @@ pub enum SttEvent {
   Final(String),
   /// Everything was flushed after `AudioMsg::Finish`.
   Finalized,
+  /// A pooled key failed and the stream moved to the next one; buffered audio is replayed.
+  Reconnecting,
   Failed(ProviderError),
 }
 
@@ -153,6 +158,10 @@ pub trait SttAdapter: Send + Sync + 'static {
   fn descriptor(&self) -> ProviderDescriptor;
   /// Whether credentials are available. Never returns or exposes the secret.
   fn configured(&self) -> bool;
+  /// Suppresses background provider work before capture starts. Dropped with the engine.
+  fn activity_guard(&self) -> Option<Box<dyn Send + Sync>> {
+    None
+  }
   /// Starts the stream on its own task. The task must end with exactly one `Finalized` or
   /// `Failed` event unless cancelled, and must stop promptly when `cancel` fires.
   fn spawn(&self, ctx: StreamCtx);

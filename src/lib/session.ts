@@ -7,6 +7,7 @@ export type SessionSnapshot = {
   session_id: string | null;
   phase: Phase;
   error: string | null;
+  reconnecting?: boolean;
 };
 
 export type Intent = 'toggle' | 'start' | 'finish' | 'cancel';

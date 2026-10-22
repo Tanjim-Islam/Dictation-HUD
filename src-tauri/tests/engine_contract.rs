@@ -166,9 +166,18 @@ fn hung_finalize_times_out_and_cancel_stops_engine() {
     h.send(Input::Start(Trigger::Tray)).await;
     wait_phase(&h, Phase::Listening, 3).await;
     h.send(Input::Finish(Trigger::Tray)).await;
-    // Finalize timer (6 s) ends the session with no speech instead of hanging forever.
-    wait_phase(&h, Phase::Idle, 9).await;
-    assert_eq!(host.outcomes.lock().unwrap().as_slice(), [Outcome::NoSpeech]);
+    // Inject the hard deadline through the real actor instead of waiting a minute.
+    let id = h.snapshot().await.unwrap().session_id.unwrap().parse().unwrap();
+    h.send(Input::Timeout(id, dictation_hud::session::machine::TimerKind::Finalize))
+      .await;
+    wait_phase(&h, Phase::Idle, 4).await;
+    assert_eq!(
+      host.outcomes.lock().unwrap().as_slice(),
+      [Outcome::Failed {
+        error: dictation_hud::session::machine::EngineError::Incomplete
+      }]
+    );
+    assert!(host.delivered.lock().unwrap().is_empty());
   });
 }
 
