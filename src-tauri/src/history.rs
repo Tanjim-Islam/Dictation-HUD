@@ -239,7 +239,12 @@ pub async fn history_recover(app: AppHandle, busy: State<'_, Busy>, id: String) 
   }
   let raw = row.session.raw_text.clone().unwrap_or_default();
   let has_final = row.session.final_text.as_deref().is_some_and(|t| !t.trim().is_empty());
-  let r = if has_final {
+  let incomplete = matches!(row.session.status.as_str(), status::FAILED | status::INTERRUPTED);
+  let r = if incomplete && row.audio_state.as_deref() == Some("encoded") {
+    retranscribe(&app, &id).await
+  } else if incomplete {
+    Err("The complete recording is not available. Saved text may be incomplete and can still be copied.".into())
+  } else if has_final {
     db.mark_recovered(&id).map(|_| ()).map_err(db_err)
   } else if !raw.trim().is_empty() {
     match process_text_with(&app, &raw, false, None, crate::textproc::Target::Prose).await {

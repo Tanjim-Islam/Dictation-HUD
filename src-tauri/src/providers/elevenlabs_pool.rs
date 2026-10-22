@@ -1,16 +1,9 @@
 //! Pool of ElevenLabs API keys used together.
 //!
-//! Selection and failure rules are ported from the MonerJanala implementation (proven in
-//! production there): eligible keys need `remaining - reserved >= cost + 500`, the least
-//! recently used eligible key wins, 401/403 marks a key invalid, quota errors mark it low on
-//! credit with a 5 minute cooldown, 429/5xx put it on a 60 second cooldown, and a failing key
-//! is excluded while the next one is tried. Added here: runtime add/remove with duplicate
-//! detection, OS credential storage, request timeouts, and live credit polling.
-//!
-//! Also added: ElevenLabs can refuse a realtime session with `quota_exceeded` while the
-//! subscription endpoint still reports plenty of credit. Such a key is marked `Refused` with an
-//! escalating cooldown that a credit refresh does not clear (the refresh would report it as
-//! healthy again within minutes), and keys that were refused are tried last.
+//! Eligible keys keep a 500-credit reserve. Proven keys precede untested keys, with least
+//! recently used as the tie-break. Credits must be fresh before reservation. Realtime quota
+//! refusals despite credits are quarantined across restarts: only an idle realtime probe can
+//! admit them again. Subscription refreshes cannot validate realtime eligibility.
 //!
 //! Secrets live only in the OS credential store (`elevenlabs:<id>`). Everything in
 //! [`PoolData`] is non-secret metadata.
@@ -21,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 use crate::credentials::{names, SecretStore};
 
@@ -32,7 +26,7 @@ const TRANSIENT_COOLDOWN_MS: u64 = 60 * 1000;
 /// First cooldown for a key refused despite showing credits; doubles per refusal, up to a day.
 const REFUSED_COOLDOWN_MS: u64 = 30 * 60 * 1000;
 const REFUSED_COOLDOWN_MAX_MS: u64 = 24 * 60 * 60 * 1000;
-pub const FRESH_MS: u64 = 5 * 60 * 1000;
+pub const FRESH_MS: u64 = 30 * 1000;
 /// Estimated credits held while a realtime session runs. Real usage shows up at the next
 /// subscription refresh, which runs right after each session.
 const SESSION_RESERVATION: u64 = 1;
@@ -75,6 +69,9 @@ pub struct KeyEntry {
   pub consecutive_failures: u32,
   /// Quota refusals despite credits, reset only by a successful session.
   pub refusals: u32,
+  /// Last session this key finished without an error.
+  pub last_ok_ms: Option<u64>,
+  pub last_probe_ms: Option<u64>,
 }
 
 impl Default for KeyEntry {
@@ -92,6 +89,8 @@ impl Default for KeyEntry {
       cooldown_until_ms: None,
       consecutive_failures: 0,
       refusals: 0,
+      last_ok_ms: None,
+      last_probe_ms: None,
     }
   }
 }
@@ -109,7 +108,7 @@ impl KeyEntry {
     let status_ok = match self.status {
       KeyStatus::Usable | KeyStatus::Unknown | KeyStatus::NoCreditAccess => true,
       // A cooldown status ends when the timer does.
-      KeyStatus::Cooldown | KeyStatus::Refused => !self.cooling(now),
+      KeyStatus::Cooldown => !self.cooling(now),
       _ => false,
     };
     if !status_ok || self.cooling(now) {
@@ -119,6 +118,11 @@ impl KeyEntry {
       Some(rem) => rem.saturating_sub(self.reserved) >= cost + CREDIT_BUFFER,
       None => true,
     }
+  }
+
+  /// The key has done real work: a session succeeded on it, or ElevenLabs billed it.
+  fn proven(&self) -> bool {
+    self.last_ok_ms.is_some() || self.character_count.is_some_and(|c| c > 0)
   }
 
   fn stale(&self, now: u64) -> bool {
@@ -175,6 +179,9 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 pub trait CreditsApi: Send + Sync {
   fn fetch(&self, secret: String) -> BoxFuture<Result<Credits, FetchError>>;
+  fn probe(&self, _secret: String) -> BoxFuture<Result<(), LeaseOutcome>> {
+    Box::pin(async { Err(LeaseOutcome::Other) })
+  }
 }
 
 pub trait PoolStorage: Send + Sync {
@@ -243,15 +250,51 @@ pub fn parse_keys(text: &str) -> Vec<String> {
 }
 
 /// A key handed to a session. Must be released with the outcome.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Lease {
   pub key_id: String,
   pub secret: String,
 }
 
+impl std::fmt::Debug for Lease {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Lease")
+      .field("key_id", &self.key_id)
+      .finish_non_exhaustive()
+  }
+}
+
+pub struct Reservation {
+  pool: Arc<ElevenLabsPool>,
+  pub lease: Lease,
+  outcome: LeaseOutcome,
+}
+
+impl Reservation {
+  pub fn new(pool: Arc<ElevenLabsPool>, lease: Lease) -> Self {
+    Self {
+      pool,
+      lease,
+      outcome: LeaseOutcome::Cancelled,
+    }
+  }
+
+  pub fn outcome(&mut self, outcome: LeaseOutcome) {
+    self.outcome = outcome;
+  }
+}
+
+impl Drop for Reservation {
+  fn drop(&mut self) {
+    self.pool.release(&self.lease.key_id, self.outcome);
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LeaseOutcome {
   Ok,
+  Cancelled,
+  Network,
   Auth,
   Quota,
   Transient,
@@ -260,6 +303,20 @@ pub enum LeaseOutcome {
 
 type ChangeFn = Box<dyn Fn(&PoolView) + Send + Sync>;
 
+#[derive(Default)]
+struct Activity {
+  sessions: usize,
+  probe_cancel: CancellationToken,
+}
+
+pub struct PoolSession(Arc<ElevenLabsPool>);
+
+impl Drop for PoolSession {
+  fn drop(&mut self) {
+    self.0.activity.lock().unwrap().sessions -= 1;
+  }
+}
+
 pub struct ElevenLabsPool {
   secrets: Arc<dyn SecretStore>,
   storage: Arc<dyn PoolStorage>,
@@ -267,11 +324,25 @@ pub struct ElevenLabsPool {
   data: Mutex<PoolData>,
   dev_key: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
   on_change: Mutex<Option<ChangeFn>>,
+  persistence: Mutex<()>,
+  activity: Mutex<Activity>,
+  activity_changed: tokio::sync::Notify,
 }
 
 impl ElevenLabsPool {
   pub fn new(secrets: Arc<dyn SecretStore>, storage: Arc<dyn PoolStorage>, api: Arc<dyn CreditsApi>) -> Self {
-    let data = storage.load();
+    let loaded = storage.load();
+    let mut data = loaded.clone();
+    for k in &mut data.keys {
+      // Reservations belong to this process. Old credit refreshes could erase Refused.
+      k.reserved = 0;
+      if k.refusals > 0 && k.status != KeyStatus::Invalid {
+        k.status = KeyStatus::Refused;
+      }
+    }
+    if data != loaded {
+      storage.save(&data);
+    }
     Self {
       secrets,
       storage,
@@ -279,6 +350,9 @@ impl ElevenLabsPool {
       data: Mutex::new(data),
       dev_key: None,
       on_change: Mutex::new(None),
+      persistence: Mutex::new(()),
+      activity: Mutex::new(Activity::default()),
+      activity_changed: tokio::sync::Notify::new(),
     }
   }
 
@@ -287,13 +361,97 @@ impl ElevenLabsPool {
     self
   }
 
+  pub fn begin_session(self: &Arc<Self>) -> PoolSession {
+    let mut activity = self.activity.lock().unwrap();
+    activity.sessions += 1;
+    activity.probe_cancel.cancel();
+    self.activity_changed.notify_one();
+    PoolSession(self.clone())
+  }
+
+  pub fn session_active(&self) -> bool {
+    self.activity.lock().unwrap().sessions > 0
+  }
+
+  pub async fn activity_changed(&self) {
+    self.activity_changed.notified().await;
+  }
+
+  /// At most one idle check per polling round. Live capture cancels it immediately.
+  pub async fn probe_idle(&self) {
+    let cancel = {
+      let mut activity = self.activity.lock().unwrap();
+      if activity.sessions > 0 {
+        return;
+      }
+      activity.probe_cancel.cancel();
+      activity.probe_cancel = CancellationToken::new();
+      activity.probe_cancel.clone()
+    };
+    let key_id = {
+      let data = self.data.lock().unwrap();
+      data
+        .keys
+        .iter()
+        .filter(|k| {
+          !k.cooling(now_ms())
+            && (matches!(k.status, KeyStatus::Refused | KeyStatus::Invalid)
+              || (!k.proven()
+                && matches!(
+                  k.status,
+                  KeyStatus::Unknown | KeyStatus::Usable | KeyStatus::NoCreditAccess
+                )))
+        })
+        .min_by_key(|k| (k.last_probe_ms.unwrap_or(0), k.status != KeyStatus::Refused))
+        .map(|k| k.id.clone())
+    };
+    let Some(id) = key_id else {
+      return;
+    };
+    let Some(secret) = self.secrets.get(&names::elevenlabs(&id)) else {
+      let mut data = self.data.lock().unwrap();
+      if let Some(k) = data.keys.iter_mut().find(|k| k.id == id) {
+        k.last_probe_ms = Some(now_ms());
+      }
+      let snapshot = data.clone();
+      drop(data);
+      self.commit(&snapshot);
+      return;
+    };
+    let result = tokio::select! {
+      biased;
+      _ = cancel.cancelled() => return,
+      r = tokio::time::timeout(Duration::from_secs(15), self.api.probe(secret)) => r.unwrap_or(Err(LeaseOutcome::Network)),
+    };
+    if cancel.is_cancelled() {
+      return;
+    }
+    self.update_outcome(&id, result.err().unwrap_or(LeaseOutcome::Ok), false);
+    {
+      let mut data = self.data.lock().unwrap();
+      if let Some(k) = data.keys.iter_mut().find(|k| k.id == id) {
+        k.last_probe_ms = Some(now_ms());
+        if matches!(result, Err(LeaseOutcome::Network | LeaseOutcome::Other)) {
+          k.cooldown_until_ms = Some(now_ms() + LOW_CREDIT_COOLDOWN_MS);
+        }
+      }
+      let snapshot = data.clone();
+      drop(data);
+      self.commit(&snapshot);
+    }
+  }
+
   pub fn set_on_change(&self, f: ChangeFn) {
     *self.on_change.lock().unwrap() = Some(f);
   }
 
-  fn commit(&self, data: &PoolData) {
-    self.storage.save(data);
-    let view = Self::view_of(data, self.dev_available(data));
+  fn commit(&self, _: &PoolData) {
+    // Save the latest state, in order, even when refresh and release finish together.
+    let save = self.persistence.lock().unwrap();
+    let data = self.data.lock().unwrap().clone();
+    self.storage.save(&data);
+    let view = Self::view_of(&data, self.dev_available(&data));
+    drop(save);
     if let Some(f) = self.on_change.lock().unwrap().as_ref() {
       f(&view);
     }
@@ -402,6 +560,7 @@ impl ElevenLabsPool {
     drop(data);
     self.commit(&snapshot);
     tracing::info!(provider = "elevenlabs", keys = snapshot.keys.len(), "pool key added");
+    self.activity_changed.notify_one();
     Ok(
       self
         .view()
@@ -547,7 +706,12 @@ impl ElevenLabsPool {
       (Self::candidate_ids(&data), data.keys.is_empty())
     };
     if empty {
-      if let Some(secret) = self.dev_key.as_ref().and_then(|f| f()) {
+      if let Some(secret) = self
+        .dev_key
+        .as_ref()
+        .filter(|_| !exclude.iter().any(|id| id == "dev-env"))
+        .and_then(|f| f())
+      {
         return Ok(Lease {
           key_id: "dev-env".into(),
           secret,
@@ -556,21 +720,27 @@ impl ElevenLabsPool {
       return Err(ProviderError::MissingKey);
     }
     let candidates: Vec<String> = candidates.into_iter().filter(|id| !exclude.contains(id)).collect();
+    // The last known balance is enough to start: waiting on the credits endpoint would delay
+    // every dictation, and an outage there must not block transcription that still works.
     if let Some(lease) = self.try_reserve(&candidates) {
       return Ok(lease);
     }
-    // Lazy refresh: stale keys one at a time, stop at the first eligible one.
-    let stale: Vec<String> = {
+    // Nothing eligible on known data: refresh stale keys (proven first) and try again.
+    let mut stale: Vec<(bool, u64, usize, String)> = {
       let data = self.data.lock().unwrap();
       let now = now_ms();
       data
         .keys
         .iter()
-        .filter(|k| candidates.contains(&k.id) && k.stale(now))
-        .map(|k| k.id.clone())
+        .enumerate()
+        .filter(|(_, k)| {
+          candidates.contains(&k.id) && k.stale(now) && k.status != KeyStatus::Refused && !k.cooling(now)
+        })
+        .map(|(i, k)| (!k.proven(), k.last_used_ms.unwrap_or(0), i, k.id.clone()))
         .collect()
     };
-    for id in stale {
+    stale.sort();
+    for (_, _, _, id) in stale {
       self.refresh(&id).await;
       if let Some(lease) = self.try_reserve(&candidates) {
         return Ok(lease);
@@ -601,64 +771,104 @@ impl ElevenLabsPool {
       .iter()
       .enumerate()
       .filter(|(_, k)| candidates.contains(&k.id) && k.eligible(now, SESSION_RESERVATION))
-      // Keys ElevenLabs refused before go last, then least recently used.
-      .min_by_key(|(i, k)| (k.refusals, k.last_used_ms.unwrap_or(0), *i))
+      // Keys ElevenLabs refused go last and proven keys first, then least recently used.
+      // Untested keys can be refused mid-dictation, and each refusal costs seconds.
+      .min_by_key(|(i, k)| (k.refusals, !k.proven(), k.last_used_ms.unwrap_or(0), *i))
       .map(|(i, _)| i)?;
     let id = data.keys[pick].id.clone();
     tracing::info!(provider = "elevenlabs", key = %id, position = pick + 1, refusals = data.keys[pick].refusals, "pool key selected");
-    let secret = self.secrets.get(&names::elevenlabs(&id))?;
+    let Some(secret) = self.secrets.get(&names::elevenlabs(&id)) else {
+      data.keys[pick].status = KeyStatus::Invalid;
+      data.keys[pick].last_error = Some("Saved credential is missing".into());
+      let snapshot = data.clone();
+      drop(data);
+      self.commit(&snapshot);
+      return self.try_reserve(candidates);
+    };
     let k = &mut data.keys[pick];
     k.reserved += SESSION_RESERVATION;
     k.last_used_ms = Some(now);
     let snapshot = data.clone();
     drop(data);
-    self.storage.save(&snapshot);
+    self.commit(&snapshot);
     Some(Lease { key_id: id, secret })
   }
 
   /// Ends a lease. Updates status from the outcome, then refreshes credits in the background
   /// caller (see `refresh`).
   pub fn release(&self, key_id: &str, outcome: LeaseOutcome) {
+    self.update_outcome(key_id, outcome, true);
+  }
+
+  fn update_outcome(&self, key_id: &str, outcome: LeaseOutcome, release_reservation: bool) {
     let now = now_ms();
     let mut data = self.data.lock().unwrap();
     let Some(k) = data.keys.iter_mut().find(|k| k.id == key_id) else {
       return;
     };
-    k.reserved = k.reserved.saturating_sub(SESSION_RESERVATION);
+    let previous_status = k.status;
+    let previous_cooldown = k.cooldown_until_ms;
+    if release_reservation {
+      k.reserved = k.reserved.saturating_sub(SESSION_RESERVATION);
+    }
     match outcome {
       LeaseOutcome::Ok => {
+        k.status = if k.remaining().is_some_and(|r| r <= CREDIT_BUFFER) {
+          KeyStatus::LowCredit
+        } else {
+          KeyStatus::Usable
+        };
+        k.cooldown_until_ms = None;
+        k.last_error = None;
         k.consecutive_failures = 0;
         k.refusals = 0;
+        k.last_ok_ms = Some(now);
+      }
+      LeaseOutcome::Cancelled => {}
+      LeaseOutcome::Network => {
+        k.last_error = Some("Connection interrupted".into());
       }
       LeaseOutcome::Auth => {
         k.status = KeyStatus::Invalid;
+        k.cooldown_until_ms = Some(now + TRANSIENT_COOLDOWN_MS);
         k.last_error = Some("Rejected by ElevenLabs".into());
-        k.consecutive_failures += 1;
+        k.consecutive_failures = k.consecutive_failures.saturating_add(1);
       }
       LeaseOutcome::Quota if k.remaining().is_some_and(|r| r > CREDIT_BUFFER) => {
         k.status = KeyStatus::Refused;
-        k.refusals += 1;
-        k.consecutive_failures += 1;
+        k.refusals = k.refusals.saturating_add(1);
+        k.consecutive_failures = k.consecutive_failures.saturating_add(1);
         let backoff = REFUSED_COOLDOWN_MS.saturating_mul(1 << (k.refusals - 1).min(6));
         k.cooldown_until_ms = Some(now + backoff.min(REFUSED_COOLDOWN_MAX_MS));
-        k.last_error = Some("ElevenLabs refused it (quota) although it shows credits".into());
+        // Seen live: free accounts ElevenLabs flagged for unusual activity (several free
+        // accounts from one network) still report full credit but refuse realtime audio.
+        k.last_error = Some(
+          "Refused by ElevenLabs although it shows credits. Usually a free account flagged for unusual activity; a paid plan fixes it."
+            .into(),
+        );
       }
       LeaseOutcome::Quota => {
         k.status = KeyStatus::LowCredit;
         k.cooldown_until_ms = Some(now + LOW_CREDIT_COOLDOWN_MS);
         k.last_error = Some("Out of credits".into());
-        k.consecutive_failures += 1;
+        k.consecutive_failures = k.consecutive_failures.saturating_add(1);
       }
       LeaseOutcome::Transient => {
         k.status = KeyStatus::Cooldown;
         k.cooldown_until_ms = Some(now + TRANSIENT_COOLDOWN_MS);
         k.last_error = Some("Rate limited or unavailable".into());
-        k.consecutive_failures += 1;
+        k.consecutive_failures = k.consecutive_failures.saturating_add(1);
       }
       LeaseOutcome::Other => {
         k.last_error = Some("Session error".into());
-        k.consecutive_failures += 1;
+        k.consecutive_failures = k.consecutive_failures.saturating_add(1);
       }
+    }
+    if matches!(previous_status, KeyStatus::Refused | KeyStatus::Invalid) && outcome != LeaseOutcome::Ok {
+      if k.status != KeyStatus::Invalid {
+        k.status = previous_status;
+      }
+      k.cooldown_until_ms = k.cooldown_until_ms.max(previous_cooldown);
     }
     let snapshot = data.clone();
     drop(data);
@@ -686,18 +896,21 @@ impl ElevenLabsPool {
         k.last_checked_ms = Some(now);
       }
       Err(FetchError::Status(403)) => {
-        if k.status != KeyStatus::Invalid {
+        if !matches!(k.status, KeyStatus::Invalid | KeyStatus::Refused) {
           k.status = KeyStatus::NoCreditAccess;
         }
         k.last_error = Some("Key cannot read credits (restricted permissions)".into());
         k.last_checked_ms = Some(now);
       }
       Err(FetchError::Status(402)) => {
-        k.status = KeyStatus::LowCredit;
+        if k.status != KeyStatus::Refused {
+          k.status = KeyStatus::LowCredit;
+        }
         k.last_checked_ms = Some(now);
       }
+      // The credits endpoint is busy or down. That says nothing about transcription, so the
+      // key stays usable on its last known balance.
       Err(FetchError::Status(s)) if s == 429 || s >= 500 => {
-        k.cooldown_until_ms = Some(now + TRANSIENT_COOLDOWN_MS);
         k.last_error = Some(format!("ElevenLabs HTTP {s}"));
       }
       Err(e) => {
@@ -723,6 +936,21 @@ impl ElevenLabsPool {
       futures_util::future::join_all(chunk.iter().map(|id| self.refresh(id))).await;
     }
   }
+
+  pub async fn refresh_stale(&self) {
+    let ids: Vec<String> = self
+      .data
+      .lock()
+      .unwrap()
+      .keys
+      .iter()
+      .filter(|k| k.stale(now_ms()) && k.status != KeyStatus::Refused)
+      .map(|k| k.id.clone())
+      .collect();
+    for chunk in ids.chunks(3) {
+      futures_util::future::join_all(chunk.iter().map(|id| self.refresh(id))).await;
+    }
+  }
 }
 
 fn apply_credits(k: &mut KeyEntry, c: &Credits, now: u64) {
@@ -730,7 +958,7 @@ fn apply_credits(k: &mut KeyEntry, c: &Credits, now: u64) {
   k.character_limit = Some(c.character_limit);
   k.last_checked_ms = Some(now);
   // The subscription endpoint cannot see a realtime refusal: keep it until its cooldown ends.
-  if k.status == KeyStatus::Refused && k.cooling(now) {
+  if matches!(k.status, KeyStatus::Refused | KeyStatus::Invalid) || k.cooling(now) {
     return;
   }
   k.cooldown_until_ms = None;
@@ -750,11 +978,20 @@ fn apply_credits(k: &mut KeyEntry, c: &Credits, now: u64) {
 pub struct HttpCreditsApi;
 
 impl CreditsApi for HttpCreditsApi {
+  fn probe(&self, secret: String) -> BoxFuture<Result<(), LeaseOutcome>> {
+    Box::pin(super::elevenlabs::probe_access(secret))
+  }
   fn fetch(&self, secret: String) -> BoxFuture<Result<Credits, FetchError>> {
     Box::pin(async move {
-      let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
-        .build()
+      static CLIENT: std::sync::OnceLock<Result<reqwest::Client, ()>> = std::sync::OnceLock::new();
+      let client = CLIENT
+        .get_or_init(|| {
+          reqwest::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+            .map_err(|_| ())
+        })
+        .as_ref()
         .map_err(|_| FetchError::Network)?;
       let resp = client
         .get("https://api.elevenlabs.io/v1/user/subscription")
@@ -794,13 +1031,20 @@ mod tests {
 
   /// Credits per secret; secrets not listed return 401.
   #[derive(Default)]
-  struct FakeApi(Mutex<HashMap<String, Result<Credits, FetchError>>>);
+  struct FakeApi(
+    Mutex<HashMap<String, Result<Credits, FetchError>>>,
+    Mutex<Option<Result<(), LeaseOutcome>>>,
+  );
   impl FakeApi {
     fn set(&self, secret: &str, r: Result<Credits, FetchError>) {
       self.0.lock().unwrap().insert(secret.into(), r);
     }
   }
   impl CreditsApi for FakeApi {
+    fn probe(&self, _: String) -> BoxFuture<Result<(), LeaseOutcome>> {
+      let result = self.1.lock().unwrap().unwrap_or(Err(LeaseOutcome::Other));
+      Box::pin(async move { result })
+    }
     fn fetch(&self, secret: String) -> BoxFuture<Result<Credits, FetchError>> {
       let r = self
         .0
@@ -1110,7 +1354,7 @@ mod tests {
       assert_ne!(lease.key_id, bad.key_id, "refused key is cooling down");
       p.release(&lease.key_id, LeaseOutcome::Ok);
     }
-    // Once the cooldown ends the key is usable again, but healthy keys still go first.
+    // Credit refresh cannot approve realtime access, even after cooldown expires.
     {
       let mut data = p.data.lock().unwrap();
       let k = data.keys.iter_mut().find(|k| k.id == bad.key_id).unwrap();
@@ -1118,8 +1362,358 @@ mod tests {
     }
     run(p.refresh(&bad.key_id));
     let k = p.view().keys.into_iter().find(|k| k.id == bad.key_id).unwrap();
-    assert_eq!(k.status, KeyStatus::Usable);
+    assert_eq!(k.status, KeyStatus::Refused);
+    assert!(!p.data.lock().unwrap().keys[0].eligible(u64::MAX, 1));
     let lease = run(p.acquire(&[])).unwrap();
-    assert_ne!(lease.key_id, bad.key_id, "keys that were refused are tried last");
+    assert_ne!(lease.key_id, bad.key_id, "refused keys never enter live selection");
+  }
+
+  #[test]
+  fn proven_keys_are_tried_before_untested_ones() {
+    let api = Arc::new(FakeApi::default());
+    api.set("untested", credits(0, 10_000));
+    api.set("billed", credits(120, 10_000));
+    let p = pool(api);
+    run(async {
+      p.add("untested").await.unwrap();
+      p.add("billed").await.unwrap();
+    });
+    p.set_multi(true);
+    let billed = p.view().keys[1].id.clone();
+    // The untested key was used longer ago, yet the billed one wins.
+    assert_eq!(run(p.acquire(&[])).unwrap().key_id, billed);
+    p.release(&billed, LeaseOutcome::Ok);
+    assert_eq!(
+      run(p.acquire(&[])).unwrap().key_id,
+      billed,
+      "a key that just worked stays first"
+    );
+    let untested = p.view().keys[0].id.clone();
+    assert_eq!(
+      run(p.acquire(std::slice::from_ref(&billed))).unwrap().key_id,
+      untested,
+      "untested keys still serve as fallback"
+    );
+  }
+
+  fn statuses() -> [KeyStatus; 8] {
+    [
+      KeyStatus::Unknown,
+      KeyStatus::Usable,
+      KeyStatus::LowCredit,
+      KeyStatus::Invalid,
+      KeyStatus::Cooldown,
+      KeyStatus::Error,
+      KeyStatus::NoCreditAccess,
+      KeyStatus::Refused,
+    ]
+  }
+
+  #[test]
+  fn every_lease_outcome_from_every_status() {
+    for status in statuses() {
+      for outcome in [
+        LeaseOutcome::Ok,
+        LeaseOutcome::Cancelled,
+        LeaseOutcome::Network,
+        LeaseOutcome::Auth,
+        LeaseOutcome::Quota,
+        LeaseOutcome::Transient,
+        LeaseOutcome::Other,
+      ] {
+        let api = Arc::new(FakeApi::default());
+        api.set("k", credits(0, 10_000));
+        let p = pool(api);
+        let id = run(p.add("k")).unwrap().id;
+        {
+          let mut data = p.data.lock().unwrap();
+          let k = &mut data.keys[0];
+          k.status = status;
+          k.reserved = 1;
+          k.last_ok_ms = None;
+        }
+        p.release(&id, outcome);
+        let data = p.data.lock().unwrap();
+        let k = &data.keys[0];
+        assert_eq!(k.reserved, 0, "{status:?} {outcome:?}");
+        let expected = match outcome {
+          LeaseOutcome::Ok => KeyStatus::Usable,
+          LeaseOutcome::Auth => KeyStatus::Invalid,
+          _ if matches!(status, KeyStatus::Refused | KeyStatus::Invalid) => status,
+          LeaseOutcome::Quota => KeyStatus::Refused,
+          LeaseOutcome::Transient => KeyStatus::Cooldown,
+          _ => status,
+        };
+        assert_eq!(k.status, expected, "{status:?} {outcome:?}");
+        assert_eq!(k.last_ok_ms.is_some(), outcome == LeaseOutcome::Ok);
+        assert_eq!(k.refusals, u32::from(outcome == LeaseOutcome::Quota));
+      }
+    }
+  }
+
+  #[test]
+  fn every_refresh_result_from_every_status() {
+    let results = [
+      credits(0, 10_000),
+      credits(9_800, 10_000),
+      Err(FetchError::Status(400)),
+      Err(FetchError::Status(401)),
+      Err(FetchError::Status(402)),
+      Err(FetchError::Status(403)),
+      Err(FetchError::Status(429)),
+      Err(FetchError::Status(503)),
+      Err(FetchError::Network),
+      Err(FetchError::Malformed),
+    ];
+    for status in statuses() {
+      for result in &results {
+        let api = Arc::new(FakeApi::default());
+        api.set("k", credits(0, 10_000));
+        let p = pool(api.clone());
+        let id = run(p.add("k")).unwrap().id;
+        p.data.lock().unwrap().keys[0].status = status;
+        api.set("k", result.clone());
+        run(p.refresh(&id));
+        let data = p.data.lock().unwrap();
+        let k = &data.keys[0];
+        let expected = match result {
+          Ok(c) if !matches!(status, KeyStatus::Refused | KeyStatus::Invalid) => {
+            if c.character_limit - c.character_count <= CREDIT_BUFFER {
+              KeyStatus::LowCredit
+            } else {
+              KeyStatus::Usable
+            }
+          }
+          Ok(_) => status,
+          Err(FetchError::Status(400 | 401)) => KeyStatus::Invalid,
+          Err(FetchError::Status(403)) if !matches!(status, KeyStatus::Invalid | KeyStatus::Refused) => {
+            KeyStatus::NoCreditAccess
+          }
+          Err(FetchError::Status(402)) if status != KeyStatus::Refused => KeyStatus::LowCredit,
+          Err(FetchError::Network | FetchError::Malformed) if status == KeyStatus::Unknown => KeyStatus::Error,
+          _ => status,
+        };
+        assert_eq!(k.status, expected, "{status:?} {result:?}");
+        assert!(k.last_ok_ms.is_none(), "credits alone never prove realtime access");
+        if matches!(result, Err(FetchError::Status(429 | 503))) {
+          // A busy credits endpoint says nothing about transcription: no new cooldown.
+          assert!(!k.cooling(now_ms()), "{status:?} {result:?}");
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn refresh_cannot_clear_a_live_cooldown() {
+    for status in [KeyStatus::Cooldown, KeyStatus::LowCredit, KeyStatus::Refused] {
+      let mut k = KeyEntry {
+        status,
+        cooldown_until_ms: Some(200),
+        ..Default::default()
+      };
+      apply_credits(
+        &mut k,
+        &Credits {
+          character_count: 0,
+          character_limit: 10_000,
+        },
+        100,
+      );
+      assert_eq!(k.status, status);
+      assert_eq!(k.cooldown_until_ms, Some(200));
+    }
+  }
+
+  #[test]
+  fn a_failed_probe_or_throttled_refresh_cannot_readmit_quarantine_or_shorten_backoff() {
+    let api = Arc::new(FakeApi::default());
+    api.set("k", credits(0, 10_000));
+    let p = pool(api.clone());
+    let id = run(p.add("k")).unwrap().id;
+    p.release(&id, LeaseOutcome::Quota);
+    let until = p.data.lock().unwrap().keys[0].cooldown_until_ms;
+    api.set("k", Err(FetchError::Status(429)));
+    run(p.refresh(&id));
+    assert_eq!(p.data.lock().unwrap().keys[0].cooldown_until_ms, until);
+    api.set("k", credits(0, 10_000));
+    p.data.lock().unwrap().keys[0].cooldown_until_ms = Some(0);
+    *api.1.lock().unwrap() = Some(Err(LeaseOutcome::Transient));
+    run(p.probe_idle());
+    run(p.refresh(&id));
+    let data = p.data.lock().unwrap();
+    let k = &data.keys[0];
+    assert_eq!(k.status, KeyStatus::Refused);
+    assert!(!k.eligible(u64::MAX, 1));
+  }
+
+  #[test]
+  fn only_a_successful_idle_probe_clears_quarantine() {
+    let api = Arc::new(FakeApi::default());
+    api.set("k", credits(0, 10_000));
+    let p = Arc::new(pool(api.clone()));
+    let id = run(p.add("k")).unwrap().id;
+    p.release(&id, LeaseOutcome::Quota);
+    p.data.lock().unwrap().keys[0].cooldown_until_ms = Some(0);
+    run(p.refresh(&id));
+    *api.1.lock().unwrap() = Some(Ok(()));
+    let active = p.begin_session();
+    run(p.probe_idle());
+    assert_eq!(p.view().keys[0].status, KeyStatus::Refused);
+    drop(active);
+    run(p.probe_idle());
+    assert_eq!(p.view().keys[0].status, KeyStatus::Usable);
+    assert!(p.data.lock().unwrap().keys[0].last_ok_ms.is_some());
+  }
+
+  #[test]
+  fn save_reload_preserves_quarantine_and_selection_and_clears_crash_reservations() {
+    let api = Arc::new(FakeApi::default());
+    api.set("bad", credits(0, 10_000));
+    api.set("good", credits(5, 10_000));
+    let storage = Arc::new(MemStorage::default());
+    let secrets = Arc::new(MemorySecretStore::default());
+    let p = ElevenLabsPool::new(secrets.clone(), storage.clone(), api.clone());
+    let bad = run(p.add("bad")).unwrap().id;
+    let good = run(p.add("good")).unwrap().id;
+    p.set_multi(true);
+    p.release(&bad, LeaseOutcome::Quota);
+    let lease = run(p.acquire(&[])).unwrap();
+    assert_eq!(lease.key_id, good);
+    let serialized = serde_json::to_string(&storage.load()).unwrap();
+    *storage.0.lock().unwrap() = serde_json::from_str(&serialized).unwrap();
+    let reloaded = ElevenLabsPool::new(secrets, storage, api);
+    assert_eq!(reloaded.data.lock().unwrap().keys[1].reserved, 0);
+    assert_eq!(run(reloaded.acquire(&[])).unwrap().key_id, good);
+    assert_eq!(reloaded.view().keys[0].status, KeyStatus::Refused);
+    assert_eq!(reloaded.data.lock().unwrap().keys[0].refusals, 1);
+    let old: PoolData = serde_json::from_str(r#"{"keys":[{"id":"old","status":"usable"}]}"#).unwrap();
+    assert_eq!(old.keys[0].last_ok_ms, None);
+    assert_eq!(old.keys[0].refusals, 0);
+  }
+
+  #[test]
+  fn lru_tiebreaks_between_proven_keys_and_missing_credentials_do_not_block_others() {
+    let api = Arc::new(FakeApi::default());
+    for key in ["a", "b", "new"] {
+      api.set(key, credits(0, 10_000));
+    }
+    let p = pool(api);
+    for key in ["a", "b", "new"] {
+      run(p.add(key)).unwrap();
+    }
+    p.set_multi(true);
+    {
+      let mut data = p.data.lock().unwrap();
+      for i in 0..2 {
+        data.keys[i].last_ok_ms = Some(1);
+      }
+      data.keys[0].last_used_ms = Some(20);
+      data.keys[1].last_used_ms = Some(10);
+    }
+    let ids: Vec<_> = p.view().keys.iter().map(|k| k.id.clone()).collect();
+    assert_eq!(run(p.acquire(&[])).unwrap().key_id, ids[1]);
+    p.secrets.delete(&names::elevenlabs(&ids[0])).unwrap();
+    assert_eq!(run(p.acquire(&[ids[1].clone()])).unwrap().key_id, ids[2]);
+  }
+
+  #[test]
+  fn stale_credits_or_a_credits_outage_never_block_dictation() {
+    let api = Arc::new(FakeApi::default());
+    api.set("k", credits(0, 10_000));
+    let p = pool(api.clone()).with_dev_key(Arc::new(|| Some("dev".into())));
+    let id = run(p.add("k")).unwrap().id;
+    p.data.lock().unwrap().keys[0].last_checked_ms = Some(0);
+    // The credits endpoint is down; the key's last known balance still lets it start at once.
+    api.set("k", Err(FetchError::Status(503)));
+    run(p.refresh(&id));
+    let lease = run(p.acquire(&[])).unwrap();
+    assert_eq!(lease.key_id, id, "saved keys win over the dev key");
+    assert_eq!(p.view().keys[0].status, KeyStatus::Usable);
+    assert!(!p.view().using_dev_key);
+  }
+
+  #[test]
+  fn cancelled_or_dropped_reservations_do_not_prove_success() {
+    let api = Arc::new(FakeApi::default());
+    api.set("k", credits(0, 10_000));
+    let p = Arc::new(pool(api));
+    run(p.add("k")).unwrap();
+    let guard = Reservation::new(p.clone(), run(p.acquire(&[])).unwrap());
+    assert_eq!(p.data.lock().unwrap().keys[0].reserved, 1);
+    drop(guard);
+    let data = p.data.lock().unwrap();
+    assert_eq!(data.keys[0].reserved, 0);
+    assert_eq!(data.keys[0].last_ok_ms, None);
+  }
+
+  #[test]
+  fn fresh_new_key_cannot_jump_a_stale_proven_key() {
+    let api = Arc::new(FakeApi::default());
+    api.set("new", credits(0, 10_000));
+    api.set("proven", credits(10, 10_000));
+    let p = pool(api);
+    run(p.add("new")).unwrap();
+    let proven = run(p.add("proven")).unwrap().id;
+    p.set_multi(true);
+    p.data.lock().unwrap().keys[1].last_checked_ms = Some(0);
+    assert_eq!(run(p.acquire(&[])).unwrap().key_id, proven);
+  }
+
+  #[tokio::test]
+  async fn capture_cancels_an_idle_probe_without_readmitting_or_reserving_the_key() {
+    struct SlowProbe(Arc<tokio::sync::Notify>);
+    impl CreditsApi for SlowProbe {
+      fn fetch(&self, _: String) -> BoxFuture<Result<Credits, FetchError>> {
+        Box::pin(async { credits(0, 10_000) })
+      }
+      fn probe(&self, _: String) -> BoxFuture<Result<(), LeaseOutcome>> {
+        let started = self.0.clone();
+        Box::pin(async move {
+          started.notify_one();
+          tokio::time::sleep(Duration::from_secs(5)).await;
+          Ok(())
+        })
+      }
+    }
+    let started = Arc::new(tokio::sync::Notify::new());
+    let p = Arc::new(ElevenLabsPool::new(
+      Arc::new(MemorySecretStore::default()),
+      Arc::new(MemStorage::default()),
+      Arc::new(SlowProbe(started.clone())),
+    ));
+    let id = p.add("k").await.unwrap().id;
+    p.release(&id, LeaseOutcome::Quota);
+    p.data.lock().unwrap().keys[0].cooldown_until_ms = Some(0);
+    let probe_pool = p.clone();
+    let probe = tokio::spawn(async move { probe_pool.probe_idle().await });
+    started.notified().await;
+    let _capture = p.begin_session();
+    tokio::time::timeout(Duration::from_millis(250), probe)
+      .await
+      .unwrap()
+      .unwrap();
+    let data = p.data.lock().unwrap();
+    let k = &data.keys[0];
+    assert_eq!(k.status, KeyStatus::Refused);
+    assert_eq!(k.last_ok_ms, None);
+    assert_eq!(k.reserved, 0);
+  }
+
+  #[test]
+  fn low_credit_and_refusal_backoff_are_bounded() {
+    let api = Arc::new(FakeApi::default());
+    api.set("k", credits(9_800, 10_000));
+    let p = pool(api);
+    let id = run(p.add("k")).unwrap().id;
+    p.release(&id, LeaseOutcome::Quota);
+    assert_eq!(p.view().keys[0].status, KeyStatus::LowCredit);
+    p.data.lock().unwrap().keys[0].character_count = Some(0);
+    for _ in 0..16 {
+      p.release(&id, LeaseOutcome::Quota);
+    }
+    let data = p.data.lock().unwrap();
+    let k = &data.keys[0];
+    assert!(k.cooldown_until_ms.unwrap() <= now_ms() + REFUSED_COOLDOWN_MAX_MS);
+    assert_eq!(k.refusals, 16);
   }
 }

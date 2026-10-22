@@ -77,7 +77,7 @@ function Pill({ snapshot, vertical }: { snapshot: SessionSnapshot; vertical: boo
   const canCancel = phase !== 'delivering';
   const canFinish = phase === 'preparing' || phase === 'listening';
   const label =
-    phase === 'preparing' ? 'Starting dictation' : phase === 'listening' ? 'Listening' : phase === 'finalizing' ? 'Finishing' : phase === 'delivering' ? 'Inserting text' : 'Processing';
+    snapshot.reconnecting ? 'Reconnecting, your speech is kept' : phase === 'preparing' ? 'Starting dictation' : phase === 'listening' ? 'Listening' : phase === 'finalizing' ? 'Finishing' : phase === 'delivering' ? 'Inserting text' : 'Processing';
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.55 }}
@@ -85,6 +85,7 @@ function Pill({ snapshot, vertical }: { snapshot: SessionSnapshot; vertical: boo
       exit={{ opacity: 0, scale: 0.6, transition: PILL_OUT }}
       role="status"
       aria-label={label}
+      title={label}
       className={cn('flex h-full w-full items-center justify-between rounded-full bg-[#0f0f0f] ring-1 ring-inset ring-white/10', vertical ? 'flex-col py-1' : 'px-1')}
     >
       <button
@@ -97,7 +98,10 @@ function Pill({ snapshot, vertical }: { snapshot: SessionSnapshot; vertical: boo
       >
         <X className="size-[11px]" strokeWidth={2.6} />
       </button>
-      <Waveform phase={phase} sessionId={snapshot.session_id} vertical={vertical} />
+      {/* While switching keys the waveform dims and pulses; a text label would not fit the side-docked bar. */}
+      <div className={cn('transition-opacity', snapshot.reconnecting && 'animate-pulse opacity-50')}>
+        <Waveform phase={phase} sessionId={snapshot.session_id} vertical={vertical} />
+      </div>
       <button
         type="button"
         aria-label="Finish dictation"

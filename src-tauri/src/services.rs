@@ -17,8 +17,9 @@ use crate::refine::RefineProvider;
 
 pub const POOL_EVENT: &str = "elevenlabs://pool";
 const POOL_STORE_KEY: &str = "elevenlabs_pool";
-/// Live polling while the provider settings are on screen.
-const POOL_POLL_ACTIVE: Duration = Duration::from_secs(5);
+/// Live polling while the provider settings are on screen. Each round refreshes every key,
+/// so it stays gentle with large pools.
+const POOL_POLL_ACTIVE: Duration = Duration::from_secs(30);
 const POOL_POLL_IDLE: Duration = Duration::from_secs(300);
 
 pub struct Services {
@@ -64,7 +65,9 @@ impl PoolStorage for StorePoolStorage {
   fn save(&self, data: &PoolData) {
     if let Ok(store) = self.0.store("prefs.json") {
       store.set(POOL_STORE_KEY, serde_json::to_value(data).unwrap_or_default());
-      let _ = store.save();
+      if store.save().is_err() {
+        tracing::warn!("could not persist ElevenLabs pool metadata");
+      }
     }
   }
 }
@@ -132,8 +135,14 @@ impl Services {
     tauri::async_runtime::spawn(async move {
       loop {
         if !pool.view().keys.is_empty() {
-          pool.refresh_all().await;
+          if watch.0.load(Ordering::SeqCst) {
+            pool.refresh_all().await;
+          } else {
+            pool.refresh_stale().await;
+          }
+          pool.probe_idle().await;
         }
+        // Credits do not gate dictation, so a session needs no extra polling.
         let wait = if watch.0.load(Ordering::SeqCst) {
           POOL_POLL_ACTIVE
         } else {
@@ -142,6 +151,7 @@ impl Services {
         tokio::select! {
           _ = tokio::time::sleep(wait) => {}
           _ = watch.1.notified() => {}
+          _ = pool.activity_changed() => {}
         }
       }
     });

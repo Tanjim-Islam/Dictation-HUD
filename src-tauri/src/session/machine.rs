@@ -58,6 +58,7 @@ pub enum EngineError {
   Microphone,
   Provider(String),
   Lost,
+  Incomplete,
 }
 
 impl EngineError {
@@ -71,6 +72,7 @@ impl EngineError {
       EngineError::Microphone => "microphone".into(),
       EngineError::Provider(kind) => format!("provider:{kind}"),
       EngineError::Lost => "engine_lost".into(),
+      EngineError::Incomplete => "incomplete".into(),
     }
   }
 
@@ -83,6 +85,7 @@ impl EngineError {
       EngineError::Microphone => "Microphone unavailable".into(),
       EngineError::Provider(kind) => format!("Speech provider error ({kind})"),
       EngineError::Lost => "Dictation engine stopped unexpectedly".into(),
+      EngineError::Incomplete => "Dictation is incomplete. Recover it from the recording in History.".into(),
     }
   }
 }
@@ -95,21 +98,32 @@ pub enum EngineEvent {
   Final(String),
   /// The provider flushed everything after a finish request.
   Finalized,
+  /// The provider switched to another key and is replaying audio; not an error.
+  Reconnecting,
+  Connected,
   Failed(EngineError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimerKind {
   Connect,
+  /// Normal wait for the last words after finishing.
   Finalize,
+  /// One longer wait, armed only when the provider switched keys during the session and is
+  /// still replaying audio.
+  FinalizeRecovery,
   ErrorHide,
 }
+
+/// A normal finish flushes at most one 20 s checkpoint (about 5 s at 4x) plus its acknowledgment.
+const FINALIZE_MS: u64 = 15_000;
 
 impl TimerKind {
   pub fn millis(self) -> u64 {
     match self {
       TimerKind::Connect => 12_000,
-      TimerKind::Finalize => 6_000,
+      TimerKind::Finalize => FINALIZE_MS,
+      TimerKind::FinalizeRecovery => crate::providers::FINALIZE_LIMIT_MS - FINALIZE_MS,
       TimerKind::ErrorHide => 2_500,
     }
   }
@@ -187,11 +201,15 @@ pub struct Snapshot {
   pub session_id: Option<String>,
   pub phase: Phase,
   pub error: Option<String>,
+  pub reconnecting: bool,
 }
 
 pub struct Machine {
   state: State,
   transcript: Aggregator,
+  reconnecting: bool,
+  /// The provider reconnected at some point in this session, so finishing may need longer.
+  recovered: bool,
   shutdown_pending: bool,
   new_id: Box<dyn FnMut() -> SessionId + Send>,
 }
@@ -207,6 +225,8 @@ impl Machine {
     Self {
       state: State::Idle,
       transcript: Aggregator::default(),
+      reconnecting: false,
+      recovered: false,
       shutdown_pending: false,
       new_id,
     }
@@ -231,6 +251,8 @@ impl Machine {
     Snapshot {
       session_id: self.active_id().map(|id| id.to_string()),
       phase: self.phase(),
+      reconnecting: self.reconnecting
+        && matches!(self.phase(), Phase::Preparing | Phase::Listening | Phase::Finalizing),
       error: match &self.state {
         State::Error { error, .. } => Some(error.message()),
         _ => None,
@@ -252,6 +274,8 @@ impl Machine {
         }
         let id = (self.new_id)();
         self.transcript = Aggregator::default();
+        self.reconnecting = false;
+        self.recovered = false;
         self.state = State::Active {
           id,
           phase: Phase::Preparing,
@@ -345,41 +369,53 @@ impl Machine {
           phase: Phase::Preparing | Phase::Listening | Phase::Finalizing,
         },
         Input::Engine(e, ev),
-      ) if e == id => {
-        match ev {
-          EngineEvent::Interim(t) => self.transcript.interim(&t),
-          EngineEvent::Final(t) => {
-            if !t.trim().is_empty() {
-              fx.push(Effect::Segment(id, t.trim().to_string()));
-            }
-            self.transcript.finalize(&t);
+      ) if e == id => match ev {
+        EngineEvent::Interim(t) => self.transcript.interim(&t),
+        EngineEvent::Final(t) => {
+          if !t.trim().is_empty() {
+            fx.push(Effect::Segment(id, t.trim().to_string()));
           }
-          EngineEvent::Ready => {}
-          EngineEvent::Finalized => {
-            if self.phase() == Phase::Finalizing {
-              self.finish_capture(&mut fx, id);
-            }
-          }
-          EngineEvent::Failed(error) => {
-            if self.phase() == Phase::Finalizing && !self.transcript.is_empty() {
-              // Finish was requested and we already hold text: deliver what we have.
-              self.finish_capture(&mut fx, id);
-            } else {
-              fx.push(Effect::CancelEngine(id));
-              self.fail(&mut fx, id, error);
-            }
+          self.transcript.finalize(&t);
+        }
+        EngineEvent::Ready => {}
+        EngineEvent::Reconnecting => {
+          self.reconnecting = true;
+          self.recovered = true;
+          fx.push(Effect::Publish);
+        }
+        EngineEvent::Connected => {
+          self.reconnecting = false;
+          fx.push(Effect::Publish);
+        }
+        EngineEvent::Finalized => {
+          if self.phase() == Phase::Finalizing {
+            self.finish_capture(&mut fx, id);
           }
         }
-      }
+        EngineEvent::Failed(error) => {
+          fx.push(Effect::CancelEngine(id));
+          self.fail(&mut fx, id, error);
+        }
+      },
       (
         State::Active {
           id,
           phase: Phase::Finalizing,
         },
         Input::Timeout(t, TimerKind::Finalize),
+      ) if t == id && self.recovered => {
+        // Audio is being replayed to another key: wait once more, up to the hard limit.
+        fx.push(Effect::StartTimer(id, TimerKind::FinalizeRecovery));
+      }
+      (
+        State::Active {
+          id,
+          phase: Phase::Finalizing,
+        },
+        Input::Timeout(t, TimerKind::Finalize | TimerKind::FinalizeRecovery),
       ) if t == id => {
         fx.push(Effect::CancelEngine(id));
-        self.finish_capture(&mut fx, id);
+        self.fail(&mut fx, id, EngineError::Incomplete);
       }
 
       // Processing
@@ -659,24 +695,80 @@ mod tests {
   }
 
   #[test]
-  fn provider_failure_during_finalize_with_text_still_processes() {
+  fn provider_failure_during_finalize_preserves_text_without_delivery() {
     let mut m = machine();
     m.step(Input::Start(Trigger::Hotkey));
     m.step(Input::Engine(id(1), EngineEvent::Final("almost done".into())));
     m.step(Input::Finish(Trigger::Hotkey));
     let fx = m.step(Input::Engine(id(1), EngineEvent::Failed(EngineError::Lost)));
-    assert!(has(&fx, &Effect::Process(id(1), "almost done".into())));
+    assert!(matches!(outcome(&fx), Some(Outcome::Failed { .. })));
+    assert_eq!(m.transcript_text(), "almost done");
+    assert!(!fx
+      .iter()
+      .any(|e| matches!(e, Effect::Process(..) | Effect::Deliver(..))));
   }
 
   #[test]
-  fn finalize_timeout_uses_collected_text() {
+  fn key_failover_after_finish_extends_the_wait() {
+    let mut m = machine();
+    m.step(Input::Start(Trigger::Hotkey));
+    m.step(Input::Engine(id(1), EngineEvent::Final("first part".into())));
+    m.step(Input::Finish(Trigger::Hotkey));
+    m.step(Input::Engine(id(1), EngineEvent::Reconnecting));
+    // Finish has one recovery-aware hard deadline. Reconnecting never resets it.
+    assert_eq!(
+      TimerKind::Finalize.millis() + TimerKind::FinalizeRecovery.millis(),
+      crate::providers::FINALIZE_LIMIT_MS
+    );
+    assert!(
+      TimerKind::Finalize.millis() <= 15_000,
+      "a normal finish never waits long"
+    );
+    assert_eq!(m.phase(), Phase::Finalizing);
+    m.step(Input::Engine(id(1), EngineEvent::Final("the rest".into())));
+    let fx = m.step(Input::Engine(id(1), EngineEvent::Finalized));
+    assert!(
+      has(&fx, &Effect::Process(id(1), "first part the rest".into())),
+      "{fx:?}"
+    );
+  }
+
+  #[test]
+  fn reconnect_before_finish_also_waits_for_the_hard_bound() {
+    let mut m = machine();
+    m.step(Input::Start(Trigger::Hotkey));
+    m.step(Input::Engine(id(1), EngineEvent::Reconnecting));
+    m.step(Input::Engine(id(1), EngineEvent::Final("words".into())));
+    m.step(Input::Finish(Trigger::Hotkey));
+    // A reconnect already in progress must not be forgotten by Finish: one longer wait.
+    let fx = m.step(Input::Timeout(id(1), TimerKind::Finalize));
+    assert!(has(&fx, &Effect::StartTimer(id(1), TimerKind::FinalizeRecovery)));
+    assert_eq!(m.phase(), Phase::Finalizing);
+    let fx = m.step(Input::Timeout(id(1), TimerKind::FinalizeRecovery));
+    assert_eq!(
+      outcome(&fx),
+      Some(Outcome::Failed {
+        error: EngineError::Incomplete
+      })
+    );
+  }
+
+  #[test]
+  fn finalize_timeout_never_promotes_unacknowledged_text() {
     let mut m = machine();
     m.step(Input::Start(Trigger::Hotkey));
     m.step(Input::Engine(id(1), EngineEvent::Interim("tail words".into())));
     m.step(Input::Finish(Trigger::Hotkey));
     let fx = m.step(Input::Timeout(id(1), TimerKind::Finalize));
     assert!(has(&fx, &Effect::CancelEngine(id(1))));
-    assert!(has(&fx, &Effect::Process(id(1), "tail words".into())));
+    assert!(!fx.iter().any(|e| matches!(e, Effect::Process(..))));
+    assert_eq!(
+      outcome(&fx),
+      Some(Outcome::Failed {
+        error: EngineError::Incomplete
+      })
+    );
+    assert_eq!(m.transcript_text(), "tail words");
   }
 
   #[test]
@@ -691,6 +783,33 @@ mod tests {
     assert!(m.step(Input::Cancel(Trigger::FlowBar)).is_empty());
     assert!(m.step(Input::Toggle(Trigger::Hotkey)).is_empty());
     assert_eq!(m.phase(), Phase::Delivering);
+  }
+
+  #[test]
+  fn reconnect_spam_cannot_move_the_hard_finalize_deadline() {
+    let mut m = machine();
+    m.step(Input::Start(Trigger::Hotkey));
+    let finish = m.step(Input::Finish(Trigger::Hotkey));
+    assert!(has(&finish, &Effect::StartTimer(id(1), TimerKind::Finalize)));
+    for _ in 0..20 {
+      let fx = m.step(Input::Engine(id(1), EngineEvent::Reconnecting));
+      assert!(!fx.iter().any(|e| matches!(e, Effect::StartTimer(..))));
+    }
+    // Exactly one extension, then the hard limit.
+    let fx = m.step(Input::Timeout(id(1), TimerKind::Finalize));
+    assert_eq!(fx, vec![Effect::StartTimer(id(1), TimerKind::FinalizeRecovery)]);
+    let fx = m.step(Input::Timeout(id(1), TimerKind::FinalizeRecovery));
+    assert_eq!(
+      outcome(&fx),
+      Some(Outcome::Failed {
+        error: EngineError::Incomplete
+      })
+    );
+    m.step(Input::Start(Trigger::Hotkey));
+    assert!(m.step(Input::Timeout(id(1), TimerKind::Finalize)).is_empty());
+    assert!(m.step(Input::Engine(id(1), EngineEvent::Reconnecting)).is_empty());
+    assert!(m.step(Input::Engine(id(1), EngineEvent::Connected)).is_empty());
+    assert!(!m.snapshot().reconnecting);
   }
 
   #[test]
@@ -756,7 +875,7 @@ mod tests {
         let cur = m.active_id().unwrap_or(id(999));
         let other = id(rnd(4) as u128);
         let target = if rnd(4) == 0 { other } else { cur };
-        let input = match rnd(13) {
+        let input = match rnd(17) {
           0 => Input::Start(Trigger::Hotkey),
           1 | 2 => Input::Toggle(Trigger::Hotkey),
           3 => Input::Finish(Trigger::FlowBar),
@@ -768,6 +887,10 @@ mod tests {
           9 => Input::Processed(target, Processed::Text("W.".into())),
           10 => Input::Delivered(target, DeliveryOutcome::Pasted),
           11 => Input::Timeout(target, TimerKind::Finalize),
+          12 => Input::Engine(target, EngineEvent::Reconnecting),
+          13 => Input::Engine(target, EngineEvent::Connected),
+          14 => Input::Engine(target, EngineEvent::Interim("tail".into())),
+          15 => Input::Timeout(target, TimerKind::FinalizeRecovery),
           _ => Input::Timeout(target, TimerKind::Connect),
         };
         for e in m.step(input) {
