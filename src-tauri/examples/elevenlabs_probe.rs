@@ -118,7 +118,11 @@ async fn main() {
       let mut lcs = vec![vec![0u32; y.len() + 1]; x.len() + 1];
       for i in (0..x.len()).rev() {
         for j in (0..y.len()).rev() {
-          lcs[i][j] = if x[i] == y[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+          lcs[i][j] = if x[i] == y[j] {
+            lcs[i + 1][j + 1] + 1
+          } else {
+            lcs[i + 1][j].max(lcs[i][j + 1])
+          };
         }
       }
       let common = lcs[0][0] as usize;
