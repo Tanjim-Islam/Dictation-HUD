@@ -536,7 +536,15 @@ async fn unacknowledged_finish_never_reports_success() {
   let mut r = start(&server, &["a"], t).await;
   r.feed(&audio(3), true).await;
   let events = r.collect().await;
-  assert_eq!(events.last(), Some(&SttEvent::Failed(ProviderError::Network)));
+  // Retries on the same key run until the recovery deadline. Whether that deadline lands
+  // during a backoff (Network) or inside an attempt (Timeout) depends on machine speed.
+  assert!(
+    matches!(
+      events.last(),
+      Some(SttEvent::Failed(ProviderError::Network | ProviderError::Timeout))
+    ),
+    "{events:?}"
+  );
   assert!(!events.contains(&SttEvent::Finalized));
 }
 #[tokio::test]
