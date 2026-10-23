@@ -369,6 +369,60 @@
           "markdownDescription": "Enables the list_refine_models command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_llm_cancel_pull command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-llm-cancel-pull",
+          "markdownDescription": "Enables the local_llm_cancel_pull command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_llm_pull command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-llm-pull",
+          "markdownDescription": "Enables the local_llm_pull command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_llm_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-llm-start",
+          "markdownDescription": "Enables the local_llm_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_llm_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-llm-status",
+          "markdownDescription": "Enables the local_llm_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-cancel",
+          "markdownDescription": "Enables the local_stt_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-download",
+          "markdownDescription": "Enables the local_stt_download command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-link",
+          "markdownDescription": "Enables the local_stt_link command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-models",
+          "markdownDescription": "Enables the local_stt_models command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-remove",
+          "markdownDescription": "Enables the local_stt_remove command without any pre-configured scope."
+        },
+        {
           "description": "Enables the providers_overview command without any pre-configured scope.",
           "type": "string",
           "const": "allow-providers-overview",
@@ -631,6 +685,60 @@
           "type": "string",
           "const": "deny-list-refine-models",
           "markdownDescription": "Denies the list_refine_models command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_llm_cancel_pull command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-llm-cancel-pull",
+          "markdownDescription": "Denies the local_llm_cancel_pull command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_llm_pull command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-llm-pull",
+          "markdownDescription": "Denies the local_llm_pull command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_llm_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-llm-start",
+          "markdownDescription": "Denies the local_llm_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_llm_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-llm-status",
+          "markdownDescription": "Denies the local_llm_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-cancel",
+          "markdownDescription": "Denies the local_stt_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-download",
+          "markdownDescription": "Denies the local_stt_download command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-link",
+          "markdownDescription": "Denies the local_stt_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_models command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-models",
+          "markdownDescription": "Denies the local_stt_models command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_remove command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-remove",
+          "markdownDescription": "Denies the local_stt_remove command without any pre-configured scope."
         },
         {
           "description": "Denies the providers_overview command without any pre-configured scope.",
@@ -2791,6 +2899,72 @@
           "type": "string",
           "const": "core:window:deny-unminimize",
           "markdownDescription": "Denies the unminimize command without any pre-configured scope."
+        },
+        {
+          "description": "This permission set configures the types of dialogs\navailable from the dialog plugin.\n\n#### Granted Permissions\n\nAll dialog types are enabled.\n\n\n\n#### This default permission set includes:\n\n- `allow-ask`\n- `allow-confirm`\n- `allow-message`\n- `allow-save`\n- `allow-open`",
+          "type": "string",
+          "const": "dialog:default",
+          "markdownDescription": "This permission set configures the types of dialogs\navailable from the dialog plugin.\n\n#### Granted Permissions\n\nAll dialog types are enabled.\n\n\n\n#### This default permission set includes:\n\n- `allow-ask`\n- `allow-confirm`\n- `allow-message`\n- `allow-save`\n- `allow-open`"
+        },
+        {
+          "description": "Enables the ask command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:allow-ask",
+          "markdownDescription": "Enables the ask command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:allow-confirm",
+          "markdownDescription": "Enables the confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the message command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:allow-message",
+          "markdownDescription": "Enables the message command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:allow-open",
+          "markdownDescription": "Enables the open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:allow-save",
+          "markdownDescription": "Enables the save command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ask command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:deny-ask",
+          "markdownDescription": "Denies the ask command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the confirm command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:deny-confirm",
+          "markdownDescription": "Denies the confirm command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the message command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:deny-message",
+          "markdownDescription": "Denies the message command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:deny-open",
+          "markdownDescription": "Denies the open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save command without any pre-configured scope.",
+          "type": "string",
+          "const": "dialog:deny-save",
+          "markdownDescription": "Denies the save command without any pre-configured scope."
         },
         {
           "description": "No features are enabled by default, as we believe\nthe shortcuts can be inherently dangerous and it is\napplication specific if specific shortcuts should be\nregistered or unregistered.\n",

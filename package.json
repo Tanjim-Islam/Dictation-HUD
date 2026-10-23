@@ -8,6 +8,8 @@
     "dev:frontend": "vite",
     "build": "tauri build",
     "build:frontend": "vite build",
+    "dev:asr": "node scripts/build-asr-helper.mjs debug",
+    "build:asr": "node scripts/build-asr-helper.mjs release",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",

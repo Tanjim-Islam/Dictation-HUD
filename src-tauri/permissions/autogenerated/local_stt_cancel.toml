@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-stt-cancel"
+description = "Enables the local_stt_cancel command without any pre-configured scope."
+commands.allow = ["local_stt_cancel"]
+
+[[permission]]
+identifier = "deny-local-stt-cancel"
+description = "Denies the local_stt_cancel command without any pre-configured scope."
+commands.deny = ["local_stt_cancel"]

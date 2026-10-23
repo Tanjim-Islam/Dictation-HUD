@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-llm-start"
+description = "Enables the local_llm_start command without any pre-configured scope."
+commands.allow = ["local_llm_start"]
+
+[[permission]]
+identifier = "deny-local-llm-start"
+description = "Denies the local_llm_start command without any pre-configured scope."
+commands.deny = ["local_llm_start"]

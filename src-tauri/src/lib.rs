@@ -11,6 +11,8 @@ pub mod flowbar;
 pub mod history;
 pub mod hotkey;
 pub mod learning;
+pub mod local_asr;
+pub mod local_llm;
 pub mod logging;
 pub mod prompt;
 pub mod providers;
@@ -174,6 +176,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
     .plugin(tauri_plugin_clipboard_manager::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
+    // Folder picker for local speech models, opened only from Rust (no WebView permission).
+    .plugin(tauri_plugin_dialog::init())
     .setup(|app| {
       if let Ok(dir) = app.path().app_log_dir() {
         if let Some(guard) = logging::init(&dir) {
@@ -211,6 +215,8 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       app.manage(services::Services::init(app.handle()));
       app.manage(app_host::CopyReasons::default());
       app.manage(history::Busy::default());
+      app.manage(commands::LocalPulls::default());
+      app.manage(local_asr::commands::LocalDownloads::default());
       history::start_retention(app.handle());
       target::start_foreground_tracker();
       let session = session::actor::spawn(Arc::new(app_host::TauriHost::new(app.handle().clone())));
@@ -251,6 +257,15 @@ pub fn run(context: tauri::Context<tauri::Wry>) -> tauri::Result<()> {
       commands::clear_provider_key,
       commands::test_provider,
       commands::list_refine_models,
+      commands::local_llm_status,
+      commands::local_llm_start,
+      commands::local_llm_pull,
+      commands::local_llm_cancel_pull,
+      local_asr::commands::local_stt_models,
+      local_asr::commands::local_stt_download,
+      local_asr::commands::local_stt_cancel,
+      local_asr::commands::local_stt_remove,
+      local_asr::commands::local_stt_link,
       commands::elevenlabs_pool_view,
       commands::elevenlabs_pool_add,
       commands::elevenlabs_pool_import,

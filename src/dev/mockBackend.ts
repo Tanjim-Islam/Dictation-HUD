@@ -4,13 +4,15 @@ import { setInvokeImpl, type HistoryItem, type HistoryQuery, type PoolView, type
 
 const nova3 = ['multi', 'en', 'en-US', 'en-GB', 'bn', 'hi', 'es', 'fr', 'de', 'ja', 'zh-CN', 'ar', 'pt', 'ru', 'it'];
 const settings: Settings = {
-  version: 2,
+  version: 3,
   auto_paste: true,
   autostart: false,
   stt_provider: 'elevenlabs',
   deepgram_model: 'nova-3',
   elevenlabs_model: 'scribe_v2_realtime',
   language: 'en',
+  local_stt_model: 'parakeet-v3',
+  local_model_paths: {},
   input_device: null,
   echo_cancellation: true,
   mute_audio: true,
@@ -21,6 +23,8 @@ const settings: Settings = {
   ai_provider: 'openrouter',
   openrouter_model: 'dots-studio/dots-3-note-preview:free',
   megallm_model: 'gpt-4o-mini',
+  ollama_model: '',
+  lmstudio_model: 'google/gemma-3-12b',
   audio_retention_days: 14,
   flowbar_edge: 'bottom',
   smart_formatting: true,
@@ -54,11 +58,21 @@ function recompute() {
 const overview = (): ProvidersOverview => ({
   stt: [
     { id: 'deepgram', name: 'Deepgram', models: [{ id: 'nova-3', name: 'Nova-3', languages: nova3, keyterms: true }, { id: 'nova-2', name: 'Nova-2', languages: nova3.filter((l) => l !== 'bn'), keyterms: false }], default_model: 'nova-3', multi_key: false, configured: true, key_source: 'saved' },
+    { id: 'local', name: 'Local', models: [
+      { id: 'parakeet-v3', name: 'Parakeet v3', languages: ['multi', 'en', 'de', 'fr', 'es'], keyterms: false },
+      { id: 'parakeet-v2', name: 'Parakeet v2 (English)', languages: ['en'], keyterms: false },
+      { id: 'whisper-turbo', name: 'Whisper Turbo', languages: ['multi', 'en', 'ja', 'zh'], keyterms: false },
+      { id: 'qwen3-asr', name: 'Qwen3-ASR', languages: ['multi', 'en', 'hi', 'zh'], keyterms: false },
+      { id: 'moonshine-base-en', name: 'Moonshine Base (English)', languages: ['en'], keyterms: false },
+      { id: 'whisper-tiny', name: 'Whisper Tiny', languages: ['multi', 'en', 'es'], keyterms: false },
+    ], default_model: 'parakeet-v3', multi_key: false, configured: true, key_source: 'none' },
     { id: 'elevenlabs', name: 'ElevenLabs', models: [{ id: 'scribe_v2_realtime', name: 'Scribe v2 Realtime', languages: ['multi', 'en', 'bn', 'hi', 'es', 'fr', 'de'], keyterms: true }], default_model: 'scribe_v2_realtime', multi_key: true, configured: pool.configured, key_source: pool.configured ? 'saved' : 'none' },
   ],
   refine: [
-    { id: 'openrouter', name: 'OpenRouter', configured: true, key_source: 'saved' },
-    { id: 'megallm', name: 'MegaLLM', configured: false, key_source: 'none' },
+    { id: 'openrouter', name: 'OpenRouter', configured: true, key_source: 'saved', local: false, installed: true },
+    { id: 'megallm', name: 'MegaLLM', configured: false, key_source: 'none', local: false, installed: true },
+    { id: 'ollama', name: 'Ollama', configured: true, key_source: 'none', local: true, installed: true },
+    { id: 'lmstudio', name: 'LM Studio', configured: true, key_source: 'none', local: true, installed: true },
   ],
 });
 
@@ -182,6 +196,33 @@ export function installMockBackend() {
         return delay('Ctrl+Shift+Alt+H') as Promise<T>;
       case 'list_refine_models':
         return delay(['dots-studio/dots-3-note-preview:free', 'google/gemini-2.5-flash-lite', 'openai/gpt-4o-mini', 'anthropic/claude-haiku-4.5'], 400) as Promise<T>;
+      case 'local_llm_status':
+      case 'local_llm_start':
+        return delay(
+          args.provider === 'ollama'
+            ? { installed: true, state: 'running', models: [], picks: [{ id: 'gemma3:4b', name: 'Gemma 3 4B', size_bytes: 3_350_272_259 }, { id: 'qwen3:4b-instruct-2507-q4_K_M', name: 'Qwen3 4B Instruct', size_bytes: 2_497_293_316 }] }
+            : { installed: true, state: 'running', models: [{ id: 'google/gemma-3-12b', name: 'Gemma 3 12B', size_bytes: 7_300_000_000, usable: true, thinking: false }, { id: 'qwen/qwen3.5-9b', name: 'Qwen3.5 9B', size_bytes: 5_600_000_000, usable: true, thinking: true }], picks: [] },
+          cmd === 'local_llm_start' ? 1500 : 200,
+        ) as Promise<T>;
+      case 'local_stt_models':
+        return delay([
+          { id: 'parakeet-v3', name: 'Parakeet v3', size_bytes: 670_478_772, languages: ['multi', 'en'], state: 'installed', pct: null, path: null },
+          { id: 'parakeet-v2', name: 'Parakeet v2 (English)', size_bytes: 661_190_513, languages: ['en'], state: 'not_installed', pct: null, path: null },
+          { id: 'whisper-turbo', name: 'Whisper Turbo', size_bytes: 1_036_613_791, languages: ['multi', 'en'], state: 'downloading', pct: 0.42, path: null },
+          { id: 'qwen3-asr', name: 'Qwen3-ASR', size_bytes: 878_702_423, languages: ['multi', 'en'], state: 'not_installed', pct: null, path: null },
+          { id: 'whisper-tiny', name: 'Whisper Tiny', size_bytes: 103_610_000, languages: ['multi', 'en'], state: 'missing', pct: null, path: 'E:\\models\\wt' },
+          { id: 'moonshine-base-en', name: 'Moonshine Base (English)', size_bytes: 111_266_225, languages: ['en'], state: 'not_installed', pct: null, path: null },
+          { id: 'dolphin-small', name: 'Dolphin Small', size_bytes: 250_163_616, languages: ['multi', 'bn', 'hi'], state: 'not_installed', pct: null, path: null },
+        ]) as Promise<T>;
+      case 'local_stt_download':
+      case 'local_stt_cancel':
+      case 'local_stt_remove':
+        return delay(undefined) as Promise<T>;
+      case 'local_stt_link':
+        return delay({ id: 'parakeet-v3', name: 'Parakeet v3' }, 400) as Promise<T>;
+      case 'local_llm_pull':
+      case 'local_llm_cancel_pull':
+        return delay(undefined) as Promise<T>;
       case 'test_provider':
         return delay({ ok: true, message: 'Key works' }, 500) as Promise<T>;
       case 'history_list':

@@ -12,8 +12,8 @@
     }
   },
   "build": {
-    "beforeDevCommand": "npm run dev:frontend",
-    "beforeBuildCommand": "npm run build:frontend",
+    "beforeDevCommand": "npm run dev:asr && npm run dev:frontend",
+    "beforeBuildCommand": "npm run build:asr && npm run build:frontend",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
   },
@@ -79,6 +79,16 @@
         "bannerPath": "installer/banner.bmp",
         "dialogImagePath": "installer/dialog.bmp"
       }
+    },
+    "externalBin": [
+      "binaries/dictation-asr"
+    ],
+    "resources": {
+      "resources/silero_vad.onnx": "silero_vad.onnx",
+      "binaries/onnxruntime.dll": "onnxruntime.dll",
+      "binaries/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll",
+      "binaries/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
+      "binaries/sherpa-onnx-cxx-api.dll": "sherpa-onnx-cxx-api.dll"
     }
   }
 }

@@ -12,6 +12,8 @@ export type Settings = {
   deepgram_model: string;
   elevenlabs_model: string;
   language: string;
+  local_stt_model: string;
+  local_model_paths: Record<string, string>;
   input_device: string | null;
   echo_cancellation: boolean;
   mute_audio: boolean;
@@ -22,6 +24,8 @@ export type Settings = {
   ai_provider: string;
   openrouter_model: string;
   megallm_model: string;
+  ollama_model: string;
+  lmstudio_model: string;
   /** Days to keep recordings; 0 keeps them forever. */
   audio_retention_days: number;
   flowbar_edge: 'bottom' | 'top' | 'left' | 'right';
@@ -45,7 +49,17 @@ export type SttProvider = {
   key_source: KeySource;
 };
 
-export type RefineProvider = { id: string; name: string; configured: boolean; key_source: KeySource };
+export type RefineProvider = { id: string; name: string; configured: boolean; key_source: KeySource; local: boolean; installed: boolean };
+
+export type LocalModel = { id: string; name: string; size_bytes: number; usable: boolean; thinking: boolean };
+export type LocalPick = { id: string; name: string; size_bytes: number };
+export type LocalLlmState = 'running' | 'stopped' | 'starting' | 'failed' | 'not_local' | 'not_installed';
+export type LocalLlmStatus = { installed: boolean; state: Exclude<LocalLlmState, 'starting'>; models: LocalModel[]; picks: LocalPick[] };
+export type LlmPullEvent = { provider: string; model: string; pct: number; state: 'downloading' | 'done' | 'failed'; error: string | null };
+
+export type LocalSttState = 'installed' | 'linked' | 'missing' | 'downloading' | 'not_installed';
+export type LocalSttModel = { id: string; name: string; size_bytes: number; languages: string[]; state: LocalSttState; pct: number | null; path: string | null };
+export type SttDownloadEvent = { id: string; pct: number; state: 'downloading' | 'done' | 'failed' | 'cancelled'; error: string | null };
 
 export type ProvidersOverview = { stt: SttProvider[]; refine: RefineProvider[] };
 
@@ -183,6 +197,19 @@ export const api = {
   clearProviderKey: (provider: string) => invoke<void>('clear_provider_key', { provider }),
   testProvider: (provider: string) => invoke<TestResult>('test_provider', { provider }),
   listRefineModels: (provider: string) => invoke<string[]>('list_refine_models', { provider }),
+  localLlm: {
+    status: (provider: string) => invoke<LocalLlmStatus>('local_llm_status', { provider }),
+    start: (provider: string) => invoke<LocalLlmStatus>('local_llm_start', { provider }),
+    pull: (provider: string, model: string) => invoke<void>('local_llm_pull', { provider, model }),
+    cancelPull: (provider: string) => invoke<void>('local_llm_cancel_pull', { provider }),
+  },
+  localStt: {
+    models: () => invoke<LocalSttModel[]>('local_stt_models'),
+    download: (id: string) => invoke<void>('local_stt_download', { id }),
+    cancel: (id: string) => invoke<void>('local_stt_cancel', { id }),
+    remove: (id: string) => invoke<void>('local_stt_remove', { id }),
+    link: () => invoke<{ id: string; name: string } | null>('local_stt_link'),
+  },
   pool: {
     view: () => invoke<PoolView>('elevenlabs_pool_view'),
     add: (secret: string) => invoke<PoolView>('elevenlabs_pool_add', { secret }),
@@ -235,6 +262,16 @@ export function onPoolChange(cb: (v: PoolView) => void): Promise<UnlistenFn> {
 export function onHistoryChange(cb: () => void): Promise<UnlistenFn> {
   if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
   return listen('history://changed', () => cb());
+}
+
+export function onSttDownload(cb: (e: SttDownloadEvent) => void): Promise<UnlistenFn> {
+  if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
+  return listen<SttDownloadEvent>('local://download', (e) => cb(e.payload));
+}
+
+export function onLlmPull(cb: (e: LlmPullEvent) => void): Promise<UnlistenFn> {
+  if (!('__TAURI_INTERNALS__' in window)) return Promise.resolve(() => {});
+  return listen<LlmPullEvent>('local://llm-pull', (e) => cb(e.payload));
 }
 
 export function onLexiconChange(cb: () => void): Promise<UnlistenFn> {

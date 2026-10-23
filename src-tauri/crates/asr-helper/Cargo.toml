@@ -1,0 +1,15 @@
+[package]
+name = "asr-helper"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "dictation-asr"
+path = "src/main.rs"
+
+[dependencies]
+asr-protocol = { path = "../asr-protocol" }
+# Shared: the prebuilt static libraries need the VS 2022 C++ toolset; the DLLs (onnxruntime,
+# sherpa-onnx C API) ship next to the helper as bundle resources.
+sherpa-onnx = { version = "1.13.8", default-features = false, features = ["shared"] }

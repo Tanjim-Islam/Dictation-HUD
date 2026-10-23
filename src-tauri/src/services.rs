@@ -1,17 +1,21 @@
 //! Long-lived backend services, created once at startup and managed by Tauri.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 use tokio::sync::Notify;
 
 use crate::credentials::{self, names, OsSecretStore, SecretStore};
+use crate::local_asr::client::{Helper, Limits, ProcessLauncher};
+use crate::local_asr::store::{default_hf_hub, ModelsDir};
 use crate::providers::deepgram::Deepgram;
 use crate::providers::elevenlabs::ElevenLabs;
 use crate::providers::elevenlabs_pool::{ElevenLabsPool, HttpCreditsApi, PoolData, PoolStorage};
+use crate::providers::local::{LocalAdapter, ModelLocator};
 use crate::providers::Registry;
 use crate::refine::RefineProvider;
 
@@ -27,6 +31,45 @@ pub struct Services {
   pub registry: Registry,
   pub pool: Arc<ElevenLabsPool>,
   pool_watch: Arc<(AtomicBool, Notify)>,
+  /// Local speech model store.
+  pub models: ModelsDir,
+  /// The local speech helper process (shared by dictation, retries, and linking).
+  pub helper: Arc<Helper>,
+}
+
+/// Resolves local speech models from settings (linked folders) and the model store.
+struct AppLocator {
+  app: AppHandle,
+  models: ModelsDir,
+}
+
+impl ModelLocator for AppLocator {
+  fn model_dir(&self, id: &str) -> Option<PathBuf> {
+    let m = crate::local_asr::catalog::get(id)?;
+    let s = crate::settings::load(&self.app);
+    self.models.resolve(m, s.local_model_paths.get(id).map(Path::new)).dir()
+  }
+
+  fn vad_path(&self) -> Option<PathBuf> {
+    let p = self.app.path().resource_dir().ok()?.join("silero_vad.onnx");
+    p.exists().then_some(p)
+  }
+
+  fn enough_memory(&self, bytes: u64) -> bool {
+    crate::local_asr::available_memory().is_none_or(|a| a >= bytes + bytes / 2)
+  }
+}
+
+/// `%LOCALAPPDATA%\com.r0ju.dictationhud\models\stt`, or `DICTATION_MODELS_DIR` in debug builds.
+fn models_root(app: &AppHandle) -> PathBuf {
+  if let Some(dir) = dev_env("DICTATION_MODELS_DIR") {
+    return PathBuf::from(dir);
+  }
+  app
+    .path()
+    .app_local_data_dir()
+    .expect("app data dir")
+    .join(r"models\stt")
 }
 
 /// Development builds may fall back to `.env`; release builds never read it.
@@ -97,11 +140,34 @@ impl Services {
     }))));
     registry.register(Arc::new(ElevenLabs::new(pool.clone())));
 
+    let models = ModelsDir::new(models_root(app), default_hf_hub(|k| std::env::var(k).ok()));
+    let removed = models.cleanup_parts();
+    if removed > 0 {
+      tracing::info!(removed, "removed unfinished model downloads");
+    }
+    let helper = Helper::new(Arc::new(ProcessLauncher::find()), Limits::default());
+    registry.register(Arc::new(LocalAdapter::new(
+      helper.clone(),
+      Arc::new(AppLocator {
+        app: app.clone(),
+        models: models.clone(),
+      }),
+    )));
+    let reaper = helper.clone();
+    tauri::async_runtime::spawn(async move {
+      loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        reaper.reap_if_idle();
+      }
+    });
+
     let services = Self {
       secrets,
       registry,
       pool,
       pool_watch: Arc::new((AtomicBool::new(false), Notify::new())),
+      models,
+      helper,
     };
     services.spawn_pool_watcher();
     services
@@ -118,6 +184,9 @@ impl Services {
   }
 
   pub fn refine_key(&self, p: &RefineProvider) -> Option<String> {
+    if p.local.is_some() {
+      return None;
+    }
     self.secrets.get(p.secret).or_else(|| dev_env(p.env))
   }
 
