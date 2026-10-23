@@ -16,6 +16,10 @@ import { ShortcutField } from './ShortcutField';
 import { KeySourceBadge, SecretField } from './SecretField';
 import { ElevenLabsPool } from './ElevenLabsPool';
 import { UpdatesRow } from './UpdatesRow';
+import { LocalModelPicker } from './LocalModelPicker';
+import { LocalModelSelect, LocalModelsGroup } from './LocalSpeech';
+import { useLocalStt } from './useLocalStt';
+import { providerHint } from './local-llm';
 import { THEME_OPTIONS } from '@/app/theme-options';
 import type { Theme } from '@/lib/api';
 
@@ -176,14 +180,15 @@ export function AudioSection() {
 export function SpeechSection() {
   const { settings, update } = useSettings();
   const { overview, reload } = useProviders();
+  const local = useLocalStt();
   if (!settings || !overview) return <Spinner />;
 
   const provider = overview.stt.find((p) => p.id === settings.stt_provider) ?? overview.stt[0];
-  const modelId = provider.id === 'elevenlabs' ? settings.elevenlabs_model : settings.deepgram_model;
+  const modelKey = provider.id === 'elevenlabs' ? 'elevenlabs_model' : provider.id === 'local' ? 'local_stt_model' : 'deepgram_model';
+  const modelId = settings[modelKey];
   const model = provider.models.find((m) => m.id === modelId) ?? provider.models.find((m) => m.id === provider.default_model)!;
   const languages = sortLanguages(model.languages);
   const langSupported = model.languages.includes(settings.language) || model.languages.includes(settings.language.split('-')[0]);
-  const modelKey = provider.id === 'elevenlabs' ? 'elevenlabs_model' : 'deepgram_model';
   const otherModelWithLang = provider.models.find((m) => m.id !== model.id && m.languages.includes(settings.language));
 
   return (
@@ -197,14 +202,16 @@ export function SpeechSection() {
             </SelectTrigger>
             <SelectContent>
               {overview.stt.map((p) => (
-                <SelectItem key={p.id} value={p.id} hint={p.configured ? undefined : 'No key'}>
+                <SelectItem key={p.id} value={p.id} hint={p.configured ? undefined : p.id === 'local' ? 'No model' : 'No key'}>
                   {p.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         } />
-        <Row title="Model" control={
+        <Row title="Model" control={provider.id === 'local' && local.models ? (
+          <LocalModelSelect models={local.models} value={model.id} onChange={(v) => update({ local_stt_model: v })} />
+        ) : (
           <Select value={model.id} onValueChange={(v) => update({ [modelKey]: v })}>
             <SelectTrigger className="w-[200px]" aria-label="Speech model">
               <SelectValue />
@@ -217,7 +224,7 @@ export function SpeechSection() {
               ))}
             </SelectContent>
           </Select>
-        } />
+        )} />
         <Row title="Language" description={`${model.languages.length - (model.languages.includes('multi') ? 1 : 0)} languages on ${model.name}.`} control={
           <Select value={langSupported ? settings.language : undefined} onValueChange={(v) => update({ language: v })}>
             <SelectTrigger className="w-[240px]" aria-label="Dictation language">
@@ -245,18 +252,24 @@ export function SpeechSection() {
         </Row>
       </Group>
 
-      <GroupLabel>{provider.name} API key</GroupLabel>
-      <Group>
-        {provider.id === 'elevenlabs' ? (
-          <Row title={<span className="flex items-center gap-2">ElevenLabs <KeySourceBadge source={provider.key_source} /></span>}>
-            <ElevenLabsPool />
-          </Row>
-        ) : (
-          <Row title={<span className="flex items-center gap-2">{provider.name} <KeySourceBadge source={provider.key_source} /></span>} description="Stored in Windows Credential Manager. It never leaves the backend.">
-            <SecretField provider={provider.id} name={provider.name} source={provider.key_source} onChanged={reload} />
-          </Row>
-        )}
-      </Group>
+      {provider.id === 'local' ? (
+        local.models ? <LocalModelsGroup models={local.models} reload={local.reload} /> : <Spinner />
+      ) : (
+        <>
+          <GroupLabel>{provider.name} API key</GroupLabel>
+          <Group>
+            {provider.id === 'elevenlabs' ? (
+              <Row title={<span className="flex items-center gap-2">ElevenLabs <KeySourceBadge source={provider.key_source} /></span>}>
+                <ElevenLabsPool />
+              </Row>
+            ) : (
+              <Row title={<span className="flex items-center gap-2">{provider.name} <KeySourceBadge source={provider.key_source} /></span>} description="Stored in Windows Credential Manager. It never leaves the backend.">
+                <SecretField provider={provider.id} name={provider.name} source={provider.key_source} onChanged={reload} />
+              </Row>
+            )}
+          </Group>
+        </>
+      )}
     </>
   );
 }
@@ -318,8 +331,8 @@ export function RefinementSection() {
   const { overview, reload } = useProviders();
   if (!settings || !overview) return <Spinner />;
   const provider = overview.refine.find((p) => p.id === settings.ai_provider) ?? overview.refine[0];
-  const modelKey = provider.id === 'megallm' ? 'megallm_model' : 'openrouter_model';
-  const model = provider.id === 'megallm' ? settings.megallm_model : settings.openrouter_model;
+  const modelKey = provider.id === 'megallm' ? 'megallm_model' : provider.id === 'ollama' ? 'ollama_model' : provider.id === 'lmstudio' ? 'lmstudio_model' : 'openrouter_model';
+  const model = settings[modelKey];
   return (
     <>
       <SectionTitle>AI refinement</SectionTitle>
@@ -340,19 +353,25 @@ export function RefinementSection() {
               </SelectTrigger>
               <SelectContent>
                 {overview.refine.map((p) => (
-                  <SelectItem key={p.id} value={p.id} hint={p.configured ? undefined : 'No key'}>
+                  <SelectItem key={p.id} value={p.id} disabled={p.local && !p.installed} hint={providerHint(p)}>
                     {p.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           } />
-          <Row title="Model" description="If the model fails or times out, the formatted transcript is pasted instead." control={
-            <ModelPicker provider={provider.id} value={model} onChange={(v) => update({ [modelKey]: v })} />
-          } />
-          <Row title={<span className="flex items-center gap-2">{provider.name} API key <KeySourceBadge source={provider.key_source} /></span>}>
-            <SecretField provider={provider.id} name={provider.name} source={provider.key_source} onChanged={reload} />
-          </Row>
+          {provider.local ? (
+            <LocalModelPicker provider={provider.id} name={provider.name} value={model} onChange={(v) => update({ [modelKey]: v })} />
+          ) : (
+            <>
+              <Row title="Model" description="If the model fails or times out, the formatted transcript is pasted instead." control={
+                <ModelPicker provider={provider.id} value={model} onChange={(v) => update({ [modelKey]: v })} />
+              } />
+              <Row title={<span className="flex items-center gap-2">{provider.name} API key <KeySourceBadge source={provider.key_source} /></span>}>
+                <SecretField provider={provider.id} name={provider.name} source={provider.key_source} onChanged={reload} />
+              </Row>
+            </>
+          )}
         </Group>
       </div>
     </>
@@ -539,6 +558,9 @@ export function AboutSection() {
         <Row title="Dictation HUD" description={`Version ${version}`} />
         <UpdatesRow />
       </Group>
+      <p className="mt-3 px-1 text-xs text-ink-muted">
+        Local speech runs on sherpa-onnx. Models: NVIDIA Parakeet, Canary, and FastConformer (CC BY 4.0); OpenAI Whisper and Distil-Whisper (MIT); Moonshine (MIT; non-English models under the non-commercial Moonshine Community License); Qwen3-ASR, Cohere Transcribe, FireRed ASR, Dolphin, Omnilingual ASR, and Zipformer (Apache 2.0); GigaAM (MIT).
+      </p>
     </>
   );
 }

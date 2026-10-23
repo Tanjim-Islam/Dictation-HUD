@@ -17,6 +17,7 @@ update.txt
 VERIFICATION-REPORT.md
 .DS_Store
 src-tauri/target/
+src-tauri/binaries/
 src-tauri/secrets.bin
 src-tauri/*.pdb
 src-tauri/*.dSYM

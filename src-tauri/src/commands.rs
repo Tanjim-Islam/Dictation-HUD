@@ -10,8 +10,11 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt as _;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::audio::{self, DeviceInfo};
 use crate::credentials::names;
+use crate::local_llm::{self, detect, scan, server, LocalApp, LocalModel, Pick};
 use crate::providers::elevenlabs_pool::{ImportReport, KeyStatus, PoolView};
 use crate::providers::ProviderDescriptor;
 use crate::refine;
@@ -71,6 +74,10 @@ pub struct RefineProviderView {
   pub name: &'static str,
   pub configured: bool,
   pub key_source: KeySource,
+  /// Runs on this computer (Ollama, LM Studio); no key.
+  pub local: bool,
+  /// Always true for cloud providers.
+  pub installed: bool,
 }
 
 #[derive(Serialize)]
@@ -111,13 +118,28 @@ pub async fn providers_overview(services: State<'_, Services>) -> Result<Provide
     .collect();
   let refine = refine::PROVIDERS
     .iter()
-    .map(|p| {
-      let key_source = services.key_source(p.secret, p.env);
-      RefineProviderView {
-        id: p.id,
-        name: p.name,
-        configured: key_source != KeySource::None,
-        key_source,
+    .map(|p| match p.local {
+      Some(app) => {
+        let installed = detect::installed(app, &detect::SystemProbe);
+        RefineProviderView {
+          id: p.id,
+          name: p.name,
+          configured: installed,
+          key_source: KeySource::None,
+          local: true,
+          installed,
+        }
+      }
+      None => {
+        let key_source = services.key_source(p.secret, p.env);
+        RefineProviderView {
+          id: p.id,
+          name: p.name,
+          configured: key_source != KeySource::None,
+          key_source,
+          local: false,
+          installed: true,
+        }
       }
     })
     .collect();
@@ -264,6 +286,9 @@ pub async fn test_provider(services: State<'_, Services>, provider: String) -> R
 #[tauri::command]
 pub async fn list_refine_models(services: State<'_, Services>, provider: String) -> Result<Vec<String>, String> {
   let p = refine::provider(&provider);
+  if let Some(app) = p.local {
+    return Ok(status_for(app, None).await.models.into_iter().map(|m| m.id).collect());
+  }
   let mut req = http()?.get(p.models_url);
   if let Some(key) = services.refine_key(p) {
     req = req.bearer_auth(key);
@@ -347,4 +372,159 @@ pub async fn audio_devices() -> Result<Vec<DeviceInfo>, String> {
   tauri::async_runtime::spawn_blocking(audio::list_input_devices)
     .await
     .map_err(|e| e.to_string())
+}
+
+pub const LLM_PULL_EVENT: &str = "local://llm-pull";
+
+#[derive(Serialize)]
+pub struct LocalLlmStatus {
+  pub installed: bool,
+  pub state: &'static str,
+  pub models: Vec<LocalModel>,
+  pub picks: Vec<Pick>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct LlmPullEvent {
+  pub provider: String,
+  pub model: String,
+  pub pct: f32,
+  pub state: &'static str,
+  pub error: Option<String>,
+}
+
+/// One pull at a time per local app.
+#[derive(Default)]
+pub struct LocalPulls(std::sync::Mutex<std::collections::HashMap<LocalApp, CancellationToken>>);
+
+fn local_app(provider: &str) -> Result<LocalApp, String> {
+  LocalApp::from_id(provider).ok_or_else(|| format!("unknown local provider {provider}"))
+}
+
+fn start_state(e: server::StartError) -> &'static str {
+  match e {
+    server::StartError::NotLocal => "not_local",
+    server::StartError::NotInstalled => "not_installed",
+    _ => "failed",
+  }
+}
+
+fn disk_models(app: LocalApp) -> Vec<LocalModel> {
+  scan::models_dir(app, &detect::SystemProbe)
+    .map(|d| scan::scan(app, &d))
+    .unwrap_or_default()
+}
+
+async fn status_for(app: LocalApp, start_error: Option<server::StartError>) -> LocalLlmStatus {
+  let p = detect::SystemProbe;
+  let picks = local_llm::picks(app).to_vec();
+  if !detect::installed(app, &p) {
+    return LocalLlmStatus {
+      installed: false,
+      state: "not_installed",
+      models: Vec::new(),
+      picks,
+    };
+  }
+  let base = match detect::endpoint(app, &p) {
+    Ok(e) => e.base,
+    Err(_) => {
+      return LocalLlmStatus {
+        installed: true,
+        state: "not_local",
+        models: disk_models(app),
+        picks,
+      }
+    }
+  };
+  if server::is_up(app, &base).await {
+    let models = server::list_models(app, &base)
+      .await
+      .unwrap_or_else(|_| disk_models(app));
+    return LocalLlmStatus {
+      installed: true,
+      state: "running",
+      models,
+      picks,
+    };
+  }
+  LocalLlmStatus {
+    installed: true,
+    state: start_error.map(start_state).unwrap_or("stopped"),
+    models: disk_models(app),
+    picks,
+  }
+}
+
+#[tauri::command]
+pub async fn local_llm_status(provider: String) -> Result<LocalLlmStatus, String> {
+  Ok(status_for(local_app(&provider)?, None).await)
+}
+
+/// Starts the server hidden (the UI calls this right after a `stopped` status).
+#[tauri::command]
+pub async fn local_llm_start(provider: String) -> Result<LocalLlmStatus, String> {
+  let app = local_app(&provider)?;
+  let err = server::ensure_running(app, &detect::SystemProbe).await.err();
+  Ok(status_for(app, err).await)
+}
+
+#[tauri::command]
+pub async fn local_llm_pull(
+  app: AppHandle,
+  pulls: State<'_, LocalPulls>,
+  provider: String,
+  model: String,
+) -> Result<(), String> {
+  let local = local_app(&provider)?;
+  let cancel = CancellationToken::new();
+  if let Some(old) = pulls.0.lock().unwrap().insert(local, cancel.clone()) {
+    old.cancel();
+  }
+  let emit = |pct: f32, state: &'static str, error: Option<String>| {
+    let _ = app.emit(
+      LLM_PULL_EVENT,
+      LlmPullEvent {
+        provider: provider.clone(),
+        model: model.clone(),
+        pct,
+        state,
+        error,
+      },
+    );
+  };
+  emit(0.0, "downloading", None);
+  let result = match server::ensure_running(local, &detect::SystemProbe).await {
+    Ok(base) => server::pull(local, &base, &model, cancel, |u| emit(u.pct, "downloading", None)).await,
+    Err(_) => Err(format!("{} did not start", local.name())),
+  };
+  pulls.0.lock().unwrap().remove(&local);
+  match &result {
+    Ok(()) => emit(1.0, "done", None),
+    Err(e) => emit(0.0, "failed", Some(e.clone())),
+  }
+  tracing::info!(app = local.id(), ok = result.is_ok(), "local model download finished");
+  result
+}
+
+#[tauri::command]
+pub async fn local_llm_cancel_pull(pulls: State<'_, LocalPulls>, provider: String) -> Result<(), String> {
+  if let Some(c) = pulls.0.lock().unwrap().remove(&local_app(&provider)?) {
+    c.cancel();
+  }
+  Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn status_states_map_start_errors() {
+    use crate::local_llm::server::StartError;
+    assert_eq!(start_state(StartError::NotLocal), "not_local");
+    assert_eq!(start_state(StartError::NotInstalled), "not_installed");
+    assert_eq!(start_state(StartError::Timeout), "failed");
+    assert_eq!(start_state(StartError::NoCli), "failed");
+  }
 }

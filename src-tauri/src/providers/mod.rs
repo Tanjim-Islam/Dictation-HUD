@@ -9,6 +9,7 @@ pub mod deepgram;
 pub mod elevenlabs;
 pub mod elevenlabs_pool;
 pub mod languages;
+pub mod local;
 pub mod mock;
 pub mod replay;
 

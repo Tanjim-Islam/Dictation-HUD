@@ -44,6 +44,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # tauri-build needs the bundled helper (externalBin) and its DLLs before any cargo check.
+      - name: Build local speech helper
+        run: npm run dev:asr
+
       - name: Versions match
         run: npm run check:versions
 
@@ -60,13 +64,13 @@ jobs:
         run: npm run build:frontend
 
       - name: Rust format
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
 
       - name: Clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --features dictation-hud/test-helpers -- -D warnings
 
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --manifest-path src-tauri/Cargo.toml --workspace --features dictation-hud/test-helpers
 
       - name: Desktop build (no installer)
         run: npx tauri build --no-bundle

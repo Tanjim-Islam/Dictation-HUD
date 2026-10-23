@@ -278,6 +278,15 @@ impl Host for TauriHost {
     if let Some(old) = self.engine.lock().unwrap().replace(handle) {
       old.cancel();
     }
+    // Load a local refinement model while the user is still speaking.
+    if s.ai_refine {
+      if let Some(local) = refine::provider(&s.ai_provider).local {
+        let model = s.refine_model().to_string();
+        if !model.is_empty() {
+          tauri::async_runtime::spawn(crate::local_llm::server::warm_up(local, model));
+        }
+      }
+    }
   }
 
   fn finish_engine(&self, id: SessionId) {
@@ -566,11 +575,7 @@ pub async fn process_text_with(
     return Some(off(formatted));
   }
   let p = refine::provider(&s.ai_provider);
-  let model = if p.id == "megallm" {
-    s.megallm_model.clone()
-  } else {
-    s.openrouter_model.clone()
-  };
+  let model = s.refine_model().to_string();
   let key = app.state::<Services>().refine_key(p);
   let req = refine::Request {
     text: &prepared.text,
@@ -579,6 +584,8 @@ pub async fn process_text_with(
     code: target.is_code(),
     timeout: if force_refine {
       refine::RETRY_TIMEOUT
+    } else if p.local.is_some() {
+      refine::LOCAL_LIVE_TIMEOUT
     } else {
       refine::LIVE_TIMEOUT
     },
