@@ -107,11 +107,17 @@ const COMMANDS: &[Command] = &[
   c("back slash", "\\", Kind::Word),
 ];
 
+/// A dictated ellipsis goes out as a placeholder. AI refinement removes the "..." pause marks
+/// that providers write for hesitations, and must not remove one the speaker asked for.
+const PROTECTED: &str = "...";
+
 /// Result of applying commands: the text and byte offsets where a new sentence starts because
 /// of a command (after `? ! .` commands and breaks), for capitalization.
 pub struct Applied {
   pub text: String,
   pub sentence_starts: Vec<usize>,
+  /// Exact text per placeholder this step emitted (numbered from `start`).
+  pub protected: Vec<String>,
 }
 
 fn trim_end_chars<'a>(s: &'a str, chars: &[char]) -> &'a str {
@@ -130,7 +136,7 @@ fn at_end(rest: &str) -> bool {
     .any(|b| lower.starts_with(b))
 }
 
-pub fn apply(text: &str) -> Applied {
+pub fn apply(text: &str, start: usize, placeholder: impl Fn(usize) -> String) -> Applied {
   let rules: Vec<Rule<'_>> = COMMANDS
     .iter()
     .enumerate()
@@ -139,6 +145,7 @@ pub fn apply(text: &str) -> Applied {
   let matches = find_longest(text, &rules);
   let mut out = String::with_capacity(text.len());
   let mut starts = Vec::new();
+  let mut protected = Vec::new();
   let mut pos = 0;
   for (s, e, id) in matches {
     let cmd = &COMMANDS[id];
@@ -154,7 +161,12 @@ pub fn apply(text: &str) -> Applied {
       _ => before,
     };
     out.push_str(before);
-    out.push_str(cmd.out);
+    if cmd.out == PROTECTED {
+      out.push_str(&placeholder(start + protected.len()));
+      protected.push(cmd.out.to_string());
+    } else {
+      out.push_str(cmd.out);
+    }
     let mut after = e;
     let rest = &text[e..];
     let skip = match cmd.kind {
@@ -179,6 +191,7 @@ pub fn apply(text: &str) -> Applied {
   Applied {
     text: out,
     sentence_starts: starts,
+    protected,
   }
 }
 
@@ -187,7 +200,7 @@ mod tests {
   use super::*;
 
   fn t(s: &str) -> String {
-    apply(s).text
+    apply(s, 0, |_| PROTECTED.into()).text
   }
 
   #[test]
@@ -237,8 +250,17 @@ Bread."
   }
 
   #[test]
+  fn dictated_ellipsis_is_protected() {
+    let a = apply("wait ellipsis, ok ellipsis", 2, |i| format!("<{i}>"));
+    assert_eq!(a.text, "wait<2> ok<3>");
+    assert_eq!(a.protected, vec!["...", "..."]);
+    // Provider pause marks are left for AI refinement.
+    assert!(apply("so... we go", 0, |_| String::new()).protected.is_empty());
+  }
+
+  #[test]
   fn sentence_starts_after_commands() {
-    let a = apply("hi question mark how are you new line next");
+    let a = apply("hi question mark how are you new line next", 0, |_| PROTECTED.into());
     assert_eq!(a.text, "hi? how are you\nnext");
     let words: Vec<&str> = a.sentence_starts.iter().map(|&i| &a.text[i..i + 3]).collect();
     assert_eq!(words, vec!["how", "nex"]);

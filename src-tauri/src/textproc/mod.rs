@@ -49,7 +49,8 @@ pub fn prepare(raw: &str, lex: &Lexicon, smart_formatting: bool, target: Target)
   } else {
     text
   };
-  let applied = commands::apply(&text);
+  let applied = commands::apply(&text, expansions.len(), lexicon::placeholder);
+  expansions.extend(applied.protected);
   let mut text = if smart_formatting {
     cleanup::smart_format(&applied.text, &applied.sentence_starts)
   } else {
@@ -146,5 +147,19 @@ mod tests {
     // Prose targets never apply coding rules.
     let p = prepare("camel case get user", &lex, true, Target::Prose);
     assert_eq!(p.text, "Camel case get user");
+  }
+
+  #[test]
+  fn dictated_ellipsis_is_kept_out_of_refinement() {
+    let p = prepare("and then ellipsis my email", &lex(), true, Target::Prose);
+    assert_eq!(p.text, "And then\u{27E6}2\u{27E7} \u{27E6}1\u{27E7}");
+    assert_eq!(
+      finish(&p.text, &p.expansions).unwrap(),
+      "And then... tanjim@Example.com"
+    );
+    // A provider pause mark stays visible to AI refinement, which removes it.
+    let p = prepare("So... we go", &lex(), true, Target::Prose);
+    assert_eq!(p.text, "So... we go");
+    assert!(p.expansions.is_empty());
   }
 }
