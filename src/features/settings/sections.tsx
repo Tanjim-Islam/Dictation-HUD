@@ -17,7 +17,7 @@ import { KeySourceBadge, SecretField } from './SecretField';
 import { ElevenLabsPool } from './ElevenLabsPool';
 import { UpdatesRow } from './UpdatesRow';
 import { LocalModelPicker } from './LocalModelPicker';
-import { LocalModelSelect, LocalModelsGroup } from './LocalSpeech';
+import { LocalModelSelect, LocalModelsGroup, ModelsFolderRow } from './LocalSpeech';
 import { useLocalStt } from './useLocalStt';
 import { providerHint } from './local-llm';
 import { THEME_OPTIONS } from '@/app/theme-options';
@@ -250,6 +250,7 @@ export function SpeechSection() {
             </div>
           )}
         </Row>
+        {provider.id === 'local' && <ModelsFolderRow onChanged={local.reload} />}
       </Group>
 
       {provider.id === 'local' ? (

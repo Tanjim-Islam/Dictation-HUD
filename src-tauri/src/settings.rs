@@ -32,6 +32,8 @@ pub struct Settings {
   pub local_stt_model: String,
   /// Catalog id to a folder the user pointed to ("Use a model on this PC").
   pub local_model_paths: BTreeMap<String, String>,
+  /// Folder for downloaded speech models; `None` is the app's own store.
+  pub local_models_dir: Option<String>,
   // Audio
   pub input_device: Option<String>,
   pub echo_cancellation: bool,
@@ -89,6 +91,7 @@ impl Default for Settings {
       language: "en".into(),
       local_stt_model: crate::local_asr::catalog::DEFAULT_MODEL.into(),
       local_model_paths: BTreeMap::new(),
+      local_models_dir: None,
       input_device: None,
       echo_cancellation: true,
       noise_suppression: true,
@@ -138,6 +141,11 @@ impl Settings {
     self
       .local_model_paths
       .retain(|id, path| crate::local_asr::catalog::get(id).is_some() && !path.trim().is_empty());
+    self.local_models_dir = self
+      .local_models_dir
+      .take()
+      .map(|d| d.trim().to_string())
+      .filter(|d| !d.is_empty());
     if self.openrouter_model.trim().is_empty() || DEAD_OPENROUTER_MODELS.contains(&self.openrouter_model.as_str()) {
       self.openrouter_model = DEFAULT_OPENROUTER_MODEL.into();
     }
@@ -195,6 +203,8 @@ pub struct SettingsPatch {
   pub language: Option<String>,
   pub local_stt_model: Option<String>,
   pub local_model_paths: Option<BTreeMap<String, String>>,
+  /// Empty string selects the app's own model store.
+  pub local_models_dir: Option<String>,
   /// Empty string selects the system default microphone.
   pub input_device: Option<String>,
   pub echo_cancellation: Option<bool>,
@@ -231,6 +241,7 @@ impl SettingsPatch {
       language,
       local_stt_model,
       local_model_paths,
+      local_models_dir,
       input_device,
       echo_cancellation,
       noise_suppression,
@@ -293,6 +304,9 @@ impl SettingsPatch {
     }
     if let Some(v) = self.local_model_paths {
       s.local_model_paths = v;
+    }
+    if let Some(v) = self.local_models_dir {
+      s.local_models_dir = Some(v);
     }
     s.sanitize();
   }
@@ -523,5 +537,14 @@ mod tests {
     assert_eq!(s.local_model_paths["whisper-tiny"], "D:\\models\\sv");
     let s = Settings::from_stored(serde_json::json!({ "local_stt_model": "gone" }));
     assert_eq!(s.local_stt_model, "parakeet-v3");
+    assert_eq!(s.local_models_dir, None);
+    let mut s = Settings::from_stored(serde_json::json!({ "local_models_dir": r" D:\Models " }));
+    assert_eq!(s.local_models_dir.as_deref(), Some(r"D:\Models"));
+    SettingsPatch {
+      local_models_dir: Some(String::new()),
+      ..Default::default()
+    }
+    .apply(&mut s);
+    assert_eq!(s.local_models_dir, None, "empty selects the default store");
   }
 }

@@ -3,7 +3,7 @@ members = ["crates/asr-protocol", "crates/asr-helper"]
 
 [package]
 name = "dictation-hud"
-version = "2.2.0"
+version = "2.3.0"
 description = "Cross-platform dictation HUD"
 authors = ["You"]
 edition = "2021"
