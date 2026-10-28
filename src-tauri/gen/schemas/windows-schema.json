@@ -399,10 +399,22 @@
           "markdownDescription": "Enables the local_stt_cancel command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_stt_choose_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-choose-folder",
+          "markdownDescription": "Enables the local_stt_choose_folder command without any pre-configured scope."
+        },
+        {
           "description": "Enables the local_stt_download command without any pre-configured scope.",
           "type": "string",
           "const": "allow-local-stt-download",
           "markdownDescription": "Enables the local_stt_download command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-folder",
+          "markdownDescription": "Enables the local_stt_folder command without any pre-configured scope."
         },
         {
           "description": "Enables the local_stt_link command without any pre-configured scope.",
@@ -421,6 +433,12 @@
           "type": "string",
           "const": "allow-local-stt-remove",
           "markdownDescription": "Enables the local_stt_remove command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_stt_reset_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-stt-reset-folder",
+          "markdownDescription": "Enables the local_stt_reset_folder command without any pre-configured scope."
         },
         {
           "description": "Enables the providers_overview command without any pre-configured scope.",
@@ -717,10 +735,22 @@
           "markdownDescription": "Denies the local_stt_cancel command without any pre-configured scope."
         },
         {
+          "description": "Denies the local_stt_choose_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-choose-folder",
+          "markdownDescription": "Denies the local_stt_choose_folder command without any pre-configured scope."
+        },
+        {
           "description": "Denies the local_stt_download command without any pre-configured scope.",
           "type": "string",
           "const": "deny-local-stt-download",
           "markdownDescription": "Denies the local_stt_download command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-folder",
+          "markdownDescription": "Denies the local_stt_folder command without any pre-configured scope."
         },
         {
           "description": "Denies the local_stt_link command without any pre-configured scope.",
@@ -739,6 +769,12 @@
           "type": "string",
           "const": "deny-local-stt-remove",
           "markdownDescription": "Denies the local_stt_remove command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_stt_reset_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-stt-reset-folder",
+          "markdownDescription": "Denies the local_stt_reset_folder command without any pre-configured scope."
         },
         {
           "description": "Denies the providers_overview command without any pre-configured scope.",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LocalSttModel } from '@/lib/api';
-import { isReady, modelHint, sortSttModels, splitSttModels } from './local-stt';
+import { isReady, modelHint, shortPath, sortSttModels, splitSttModels } from './local-stt';
 
 const m = (id: string, state: LocalSttModel['state'], pct: number | null = null): LocalSttModel => ({
   id,
@@ -34,5 +34,11 @@ describe('local speech helpers', () => {
     expect(modelHint(m('a', 'downloading', 0.426))).toBe('43%');
     expect(isReady('linked')).toBe(true);
     expect(isReady('downloading')).toBe(false);
+  });
+
+  it('shortens long folder paths but keeps the drive and last folders', () => {
+    expect(shortPath('D:\\Models')).toBe('D:\\Models');
+    expect(shortPath('C:\\Users\\you\\AppData\\Local\\com.r0ju.dictationhud\\models\\stt')).toBe('C:\\…\\models\\stt');
+    expect(shortPath('D:\\a-very-long-folder-name-that-goes-on-and-on-forever')).toBe('D:\\a-very-long-folder-name-that-goes-on-and-on-forever');
   });
 });

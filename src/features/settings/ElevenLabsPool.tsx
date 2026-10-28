@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { toast } from 'sonner';
-import { KeyRound, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { Ban, KeyRound, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge, Spinner, type Tone } from '@/components/ui/misc';
@@ -159,6 +159,7 @@ export function ElevenLabsPool() {
   const [adding, setAdding] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmRefused, setConfirmRefused] = useState(false);
   const lastChecked = Math.max(0, ...(pool?.keys.map((k) => k.last_checked_ms ?? 0) ?? [0])) || null;
   const ago = useAgo(lastChecked);
 
@@ -192,6 +193,20 @@ export function ElevenLabsPool() {
     }
   }
 
+  async function removeRefused() {
+    const ids = (pool?.keys ?? []).filter((k) => k.status === 'refused').map((k) => k.id);
+    let removed = 0;
+    try {
+      for (const id of ids) {
+        setPool(await api.pool.remove(id));
+        removed += 1;
+      }
+      toast.success(`Removed ${removed} refused ${removed === 1 ? 'key' : 'keys'}`);
+    } catch (e) {
+      toast.error('Could not remove refused keys', { description: errorMessage(e) });
+    }
+  }
+
   async function refresh() {
     setRefreshing(true);
     try {
@@ -202,6 +217,7 @@ export function ElevenLabsPool() {
   }
 
   const hasKeys = pool.keys.length > 0;
+  const refusedCount = pool.keys.filter((k) => k.status === 'refused').length;
   const pct = pool.total_limit > 0 ? Math.min(100, (pool.total_remaining / pool.total_limit) * 100) : 0;
 
   return (
@@ -283,10 +299,18 @@ export function ElevenLabsPool() {
                   <Plus strokeWidth={2} />
                   Add one more API key
                 </Button>
-                <Button variant="danger-ghost" onClick={() => setConfirmClear(true)}>
-                  <Trash2 strokeWidth={1.75} />
-                  Delete all
-                </Button>
+                <div className="flex items-center gap-1">
+                  {refusedCount > 0 && (
+                    <Button variant="danger-ghost" onClick={() => setConfirmRefused(true)}>
+                      <Ban strokeWidth={1.75} />
+                      Remove refused
+                    </Button>
+                  )}
+                  <Button variant="danger-ghost" onClick={() => setConfirmClear(true)}>
+                    <Trash2 strokeWidth={1.75} />
+                    Delete all
+                  </Button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -305,6 +329,24 @@ export function ElevenLabsPool() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction destructive onClick={clearAll}>
               Delete all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmRefused} onOpenChange={setConfirmRefused}>
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            Remove {refusedCount} refused {refusedCount === 1 ? 'key' : 'keys'}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            ElevenLabs refused {refusedCount === 1 ? 'this key' : 'these keys'} although {refusedCount === 1 ? 'it shows' : 'they show'} credits, usually because a free account was flagged for unusual
+            activity. {refusedCount === 1 ? 'It is' : 'They are'} deleted from Windows Credential Manager. Your other keys stay.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction destructive onClick={removeRefused}>
+              Remove refused
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

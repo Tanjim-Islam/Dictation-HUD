@@ -27,3 +27,11 @@ export function modelHint(m: LocalSttModel): string | undefined {
   if (m.state === 'downloading') return `${Math.round((m.pct ?? 0) * 100)}%`;
   return m.state === 'missing' ? 'Missing' : 'Not installed';
 }
+
+/** Long paths keep the drive and the last two folders: `D:\…\LM Studio\speech-models`. */
+export function shortPath(path: string, max = 44): string {
+  if (path.length <= max) return path;
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= 3) return path;
+  return `${parts[0]}\\…\\${parts.slice(-2).join('\\')}`;
+}

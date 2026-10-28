@@ -80,14 +80,13 @@ pub async fn local_stt_models(
 ) -> Result<Vec<LocalSttModelView>, String> {
   let services = app.state::<Services>();
   let s = settings::load(&app);
+  let models = services.models(&s);
   let running = downloads.0.lock().unwrap();
   Ok(
     CATALOG
       .iter()
       .map(|m| {
-        let state = services
-          .models
-          .resolve(m, s.local_model_paths.get(m.id).map(std::path::Path::new));
+        let state = models.resolve(m, s.local_model_paths.get(m.id).map(std::path::Path::new));
         let path = match &state {
           ModelState::Linked(d) | ModelState::Cached(d) | ModelState::Missing(d) => {
             Some(d.to_string_lossy().into_owned())
@@ -127,7 +126,7 @@ pub async fn local_stt_download(
     }
     running.insert(id.clone(), (cancel.clone(), 0.0));
   }
-  let models = app.state::<Services>().models.clone();
+  let models = app.state::<Services>().models(&settings::load(&app));
   let handle = app.clone();
   tauri::async_runtime::spawn(async move {
     let emit = |pct: f32, state: &'static str, error: Option<String>| {
@@ -199,10 +198,9 @@ pub async fn local_stt_remove(app: AppHandle, id: String) -> Result<(), String> 
     )?;
     return Ok(());
   }
-  let services = app.state::<Services>();
-  match services.models.resolve(m, None) {
-    ModelState::Installed(_) => services
-      .models
+  let models = app.state::<Services>().models(&s);
+  match models.resolve(m, None) {
+    ModelState::Installed(_) => models
       .remove_install(m.id)
       .map_err(|_| "Could not remove the model files".to_string()),
     ModelState::Cached(_) => Err("This model is in your Hugging Face cache, so it stays there.".into()),
@@ -257,6 +255,112 @@ pub async fn local_stt_link(app: AppHandle) -> Result<Option<LinkedView>, String
   )?;
   tracing::info!(model = m.id, "linked a local model folder");
   Ok(Some(LinkedView { id: m.id, name: m.name }))
+}
+
+#[derive(Serialize)]
+pub struct ModelsFolderView {
+  pub path: String,
+  /// False for the app's own store.
+  pub custom: bool,
+}
+
+fn folder_view(app: &AppHandle) -> ModelsFolderView {
+  let services = app.state::<Services>();
+  let s = settings::load(app);
+  ModelsFolderView {
+    path: services.models(&s).root().to_string_lossy().into_owned(),
+    custom: s.local_models_dir.is_some(),
+  }
+}
+
+#[tauri::command]
+pub fn local_stt_folder(app: AppHandle) -> ModelsFolderView {
+  folder_view(&app)
+}
+
+/// Picks the folder new downloads go to. Models already downloaded stay where they are.
+#[tauri::command]
+pub async fn local_stt_choose_folder(
+  app: AppHandle,
+  downloads: State<'_, LocalDownloads>,
+) -> Result<Option<ModelsFolderView>, String> {
+  if !downloads.0.lock().unwrap().is_empty() {
+    return Err("Wait for the downloads to finish, or stop them first.".into());
+  }
+  let picker = app.clone();
+  let picked = tokio::task::spawn_blocking(move || {
+    picker
+      .dialog()
+      .file()
+      .set_title("Choose where to save speech models")
+      .blocking_pick_folder()
+  })
+  .await
+  .map_err(|e| e.to_string())?;
+  let Some(folder) = picked.and_then(|p| p.into_path().ok()) else {
+    return Ok(None);
+  };
+  tokio::task::spawn_blocking(move || writable(&folder).map(|()| folder))
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|_| "Can't save models in that folder. Choose one you can write to.".to_string())
+    .and_then(|folder| set_folder(&app, Some(folder)))
+    .map(Some)
+}
+
+#[tauri::command]
+pub fn local_stt_reset_folder(
+  app: AppHandle,
+  downloads: State<'_, LocalDownloads>,
+) -> Result<ModelsFolderView, String> {
+  if !downloads.0.lock().unwrap().is_empty() {
+    return Err("Wait for the downloads to finish, or stop them first.".into());
+  }
+  set_folder(&app, None)
+}
+
+fn writable(dir: &std::path::Path) -> std::io::Result<()> {
+  std::fs::create_dir_all(dir)?;
+  let probe = dir.join(".dictation-hud-write-test");
+  std::fs::write(&probe, b"")?;
+  std::fs::remove_file(probe)
+}
+
+fn set_folder(app: &AppHandle, folder: Option<std::path::PathBuf>) -> Result<ModelsFolderView, String> {
+  let services = app.state::<Services>();
+  let s = settings::load(app);
+  let old = services.models(&s);
+  let new = services.default_models().select(folder.as_deref());
+  if new.root() == old.root() {
+    return Ok(folder_view(app));
+  }
+  // Models in the old picked folder stay usable as linked folders. Links into the new folder
+  // become plain installs again. The default store is always searched, so it needs neither.
+  let default_root = services.default_models().root();
+  let mut paths = s.local_model_paths.clone();
+  for m in CATALOG {
+    if paths
+      .get(m.id)
+      .is_some_and(|p| std::path::Path::new(p) == new.install_dir(m.id))
+    {
+      paths.remove(m.id);
+    }
+    let dir = old.install_dir(m.id);
+    if old.root() != default_root && !paths.contains_key(m.id) && super::store::layout_ok(m, &dir) {
+      paths.insert(m.id.to_string(), dir.to_string_lossy().into_owned());
+    }
+  }
+  let custom = (new.root() != default_root).then(|| new.root().to_string_lossy().into_owned());
+  crate::commands::apply_settings_patch(
+    app,
+    SettingsPatch {
+      local_models_dir: Some(custom.unwrap_or_default()),
+      local_model_paths: Some(paths),
+      ..Default::default()
+    },
+  )?;
+  tracing::info!(custom = new.root() != default_root, "local models folder changed");
+  Ok(folder_view(app))
 }
 
 #[cfg(test)]

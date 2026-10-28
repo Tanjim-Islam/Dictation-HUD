@@ -13,6 +13,7 @@ const settings: Settings = {
   language: 'en',
   local_stt_model: 'parakeet-v3',
   local_model_paths: {},
+  local_models_dir: null,
   input_device: null,
   echo_cancellation: true,
   mute_audio: true,
@@ -39,6 +40,7 @@ let pool: PoolView = {
     { id: 'a', label: 'Key 1', status: 'usable', remaining: 4200, limit: 10000, last_checked_ms: Date.now(), last_error: null, active: true },
     { id: 'b', label: 'Key 2', status: 'usable', remaining: 6000, limit: 10000, last_checked_ms: Date.now(), last_error: null, active: true },
     { id: 'c', label: 'Key 3', status: 'low_credit', remaining: 310, limit: 10000, last_checked_ms: Date.now(), last_error: 'Out of credits', active: true },
+    { id: 'd', label: 'Key 4', status: 'refused', remaining: 10000, limit: 10000, last_checked_ms: Date.now(), last_error: 'Refused by ElevenLabs although it shows credits.', active: true },
   ],
   total_remaining: 10510,
   total_limit: 30000,
@@ -218,6 +220,13 @@ export function installMockBackend() {
       case 'local_stt_cancel':
       case 'local_stt_remove':
         return delay(undefined) as Promise<T>;
+      case 'local_stt_folder':
+      case 'local_stt_reset_folder':
+        settings.local_models_dir = cmd === 'local_stt_reset_folder' ? null : settings.local_models_dir;
+        return delay({ path: settings.local_models_dir ?? 'C:\\Users\\you\\AppData\\Local\\com.r0ju.dictationhud\\models\\stt', custom: settings.local_models_dir !== null }) as Promise<T>;
+      case 'local_stt_choose_folder':
+        settings.local_models_dir = 'D:\\Studies\\LM Studio\\speech-models';
+        return delay({ path: settings.local_models_dir, custom: true }, 400) as Promise<T>;
       case 'local_stt_link':
         return delay({ id: 'parakeet-v3', name: 'Parakeet v3' }, 400) as Promise<T>;
       case 'local_llm_pull':

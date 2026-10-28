@@ -14,6 +14,7 @@ export type Settings = {
   language: string;
   local_stt_model: string;
   local_model_paths: Record<string, string>;
+  local_models_dir: string | null;
   input_device: string | null;
   echo_cancellation: boolean;
   mute_audio: boolean;
@@ -58,6 +59,8 @@ export type LocalLlmStatus = { installed: boolean; state: Exclude<LocalLlmState,
 export type LlmPullEvent = { provider: string; model: string; pct: number; state: 'downloading' | 'done' | 'failed'; error: string | null };
 
 export type LocalSttState = 'installed' | 'linked' | 'missing' | 'downloading' | 'not_installed';
+/** Where downloaded speech models go. `custom` is false for the app's own folder. */
+export type ModelsFolder = { path: string; custom: boolean };
 export type LocalSttModel = { id: string; name: string; size_bytes: number; languages: string[]; state: LocalSttState; pct: number | null; path: string | null };
 export type SttDownloadEvent = { id: string; pct: number; state: 'downloading' | 'done' | 'failed' | 'cancelled'; error: string | null };
 
@@ -209,6 +212,9 @@ export const api = {
     cancel: (id: string) => invoke<void>('local_stt_cancel', { id }),
     remove: (id: string) => invoke<void>('local_stt_remove', { id }),
     link: () => invoke<{ id: string; name: string } | null>('local_stt_link'),
+    folder: () => invoke<ModelsFolder>('local_stt_folder'),
+    chooseFolder: () => invoke<ModelsFolder | null>('local_stt_choose_folder'),
+    resetFolder: () => invoke<ModelsFolder>('local_stt_reset_folder'),
   },
   pool: {
     view: () => invoke<PoolView>('elevenlabs_pool_view'),

@@ -31,8 +31,8 @@ pub struct Services {
   pub registry: Registry,
   pub pool: Arc<ElevenLabsPool>,
   pool_watch: Arc<(AtomicBool, Notify)>,
-  /// Local speech model store.
-  pub models: ModelsDir,
+  /// The app's own local speech model store (the default folder).
+  models: ModelsDir,
   /// The local speech helper process (shared by dictation, retries, and linking).
   pub helper: Arc<Helper>,
 }
@@ -47,7 +47,9 @@ impl ModelLocator for AppLocator {
   fn model_dir(&self, id: &str) -> Option<PathBuf> {
     let m = crate::local_asr::catalog::get(id)?;
     let s = crate::settings::load(&self.app);
-    self.models.resolve(m, s.local_model_paths.get(id).map(Path::new)).dir()
+    models_for(&self.models, &s)
+      .resolve(m, s.local_model_paths.get(id).map(Path::new))
+      .dir()
   }
 
   fn vad_path(&self) -> Option<PathBuf> {
@@ -58,6 +60,11 @@ impl ModelLocator for AppLocator {
   fn enough_memory(&self, bytes: u64) -> bool {
     crate::local_asr::available_memory().is_none_or(|a| a >= bytes + bytes / 2)
   }
+}
+
+/// The model store the settings select: the user's folder for downloads, or the default store.
+fn models_for(default: &ModelsDir, s: &crate::settings::Settings) -> ModelsDir {
+  default.select(s.local_models_dir.as_deref().map(Path::new))
 }
 
 /// `%LOCALAPPDATA%\com.r0ju.dictationhud\models\stt`, or `DICTATION_MODELS_DIR` in debug builds.
@@ -141,7 +148,7 @@ impl Services {
     registry.register(Arc::new(ElevenLabs::new(pool.clone())));
 
     let models = ModelsDir::new(models_root(app), default_hf_hub(|k| std::env::var(k).ok()));
-    let removed = models.cleanup_parts();
+    let removed = models_for(&models, &crate::settings::load(app)).cleanup_parts();
     if removed > 0 {
       tracing::info!(removed, "removed unfinished model downloads");
     }
@@ -171,6 +178,16 @@ impl Services {
     };
     services.spawn_pool_watcher();
     services
+  }
+
+  /// The model store for these settings (see [`ModelsDir::select`]).
+  pub fn models(&self, s: &crate::settings::Settings) -> ModelsDir {
+    models_for(&self.models, s)
+  }
+
+  /// The app's own model store, used when no folder is picked.
+  pub fn default_models(&self) -> &ModelsDir {
+    &self.models
   }
 
   pub fn key_source(&self, secret: &str, env: &str) -> KeySource {
