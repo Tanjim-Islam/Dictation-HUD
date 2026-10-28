@@ -32,16 +32,16 @@ jobs:
           workspaces: src-tauri
 
       # rust-cache keeps compiled crates but deletes the files sherpa-onnx-sys downloads and copies
-      # into target/. Its build script only reruns when its env changes, so rerun it when they are gone.
+      # into target/, leaving empty folders. Its build script reruns only when its env changes and
+      # trusts an existing lib folder, so clear the folder and rerun it when the libraries are gone.
       - name: Restore sherpa-onnx libraries
         shell: bash
         run: |
-          for profile in debug release; do
-            if [ ! -f "src-tauri/target/$profile/sherpa-onnx-c-api.dll" ]; then
-              if [ "$profile" = release ]; then flag=--release; else flag=; fi
-              cargo clean -p sherpa-onnx-sys $flag --manifest-path src-tauri/Cargo.toml
-            fi
-          done
+          if ! ls src-tauri/target/sherpa-onnx-prebuilt/*/lib/sherpa-onnx-c-api.lib >/dev/null 2>&1; then
+            rm -rf src-tauri/target/sherpa-onnx-prebuilt
+            cargo clean -p sherpa-onnx-sys --manifest-path src-tauri/Cargo.toml
+            cargo clean -p sherpa-onnx-sys --release --manifest-path src-tauri/Cargo.toml
+          fi
 
       - name: Install frontend dependencies
         run: npm ci
